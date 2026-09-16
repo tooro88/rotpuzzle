@@ -92,9 +92,11 @@ class Puzzle {
             width:  `${vr.width}px`,
             height: `${vr.height}px`,
             zIndex: BIG_Z,
+            touchAction: "none",
         });
         for (const name of  ['mousedown', 'mouseup', 'click', 'dblclick',
-                             'contextmenu',  'pointerdown', 'pointerup']) {
+                             'pointermove', 'pointercancel',
+                             'contextmenu',  'pointerdown', 'pointerup',]) {
             root.addEventListener(name, (e) => {
                 e.preventDefault();
                 e.stopPropagation();
