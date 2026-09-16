@@ -1,1 +1,6 @@
 *~
+Gemfile
+Gemfile.lock
+_site
+.jekyll-cache
+template.md
