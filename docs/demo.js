@@ -93,6 +93,7 @@ class Puzzle {
             height: `${vr.height}px`,
             zIndex: BIG_Z,
             touchAction: "none",
+            userSelect: "none",
         });
         for (const name of  ['mousedown', 'mouseup', 'click', 'dblclick',
                              'pointermove', 'pointercancel',
