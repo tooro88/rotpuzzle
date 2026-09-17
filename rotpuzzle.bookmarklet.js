@@ -806,8 +806,8 @@ const getScreenRect = () => {
     return {
         left:  0,
         top: 0,
-        width:  document.documentElement.clientWidth,
-        height: document.documentElement.clientHeight,
+        width:  innerWidth,
+        height: innerHeight,
     };
 };
 const isIrregularImg= img => {
