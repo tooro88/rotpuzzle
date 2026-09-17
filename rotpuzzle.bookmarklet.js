@@ -96,9 +96,13 @@ class Puzzle {
             userSelect: "none",
         });
         for (const name of  ['mousedown', 'mouseup', 'click', 'dblclick',
+                             'touchstart', 'touchmove',
+                             'touchend', 'touchcancel',
                              'pointermove', 'pointercancel',
                              'contextmenu',  'pointerdown', 'pointerup',]) {
             root.addEventListener(name, (e) => {
+                if (e.target.closest('.rotpuzzle-ui'))
+                    return;
                 e.preventDefault();
                 e.stopPropagation();
             }, { passive: false });
@@ -446,6 +450,7 @@ class Puzzle {
     }
     createUIPanel() {
         const panel = document.createElement("div");
+        panel.className = "rotpuzzle-ui";
         Object.assign(panel.style, {
             position: "absolute",
             right: 0,
