@@ -4,7 +4,7 @@
 [このプログラム]をブラウザのブックマークのURL欄にコピーし、画像のあるwebページ上でそのブックマークを選ぶと、画面上の画像のうち一番大きいものが次のようなパズルに変換されます。
 
 <img src="imgs/pexels-spdel-10889285.jpg" class="rotpuzzle-target"
-     style="max-width: 80vw; max-height: 80vh; width: auto; height: auto;">
+     style="max-width: 85vw; max-height: 85vh; width: auto; height: auto;">
 <br>
 (Photo by [Sunil Poudel])
 
@@ -36,6 +36,7 @@ Android上のChromeについて
 
 Android端末のChromeはブックマークレットの文字数制限が厳しく、このプログラムは動作しません。代わりに[プログラム本体を外部サイトからロードするブックマークレット]を使って実行することができます。ただし、多くのサイト(Xなど)ではセキュリティの設定で外部サイトのプログラムのロードを許可していないので、動作するサイトは限られます。(また、上の注意点でおすすめしたこととも両立しません。)
 
+なお、Androidではブックマークレットをブックマークメニューから実行できません。アドレス入力欄にブックマーク名を入力して、予測変換候補の中からブックマークを選択して実行してください。
 
 [Sunil Poudel]: https://www.pexels.com/@spdel/highlights/
 [このプログラム]: https://github.com/tooro88/rotpuzzle/blob/main/rotpuzzle.bookmarklet.js
