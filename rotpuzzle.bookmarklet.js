@@ -739,12 +739,9 @@ const getRenderedRect = (renderer, iw, ih) => {
     const pos = cs.backgroundPosition.trim().split(/\s+/);
     const xpos = pos[0] || "50%";
     const ypos = pos[1] || "50%";
-    return {
-        left: rr.left + getObjectPosition(xpos, rr.width - width),
-        top: rr.top + getObjectPosition(ypos, rr.height - height),
-        width: width,
-        height: height,
-    };
+    const x = rr.left + getObjectPosition(xpos, rr.width - width);
+    const y = rr.top + getObjectPosition(ypos, rr.height - height);
+    return new DOMRect(x, y, width, height);
 };
 const getContentRect = (img) => {
     const or = img.getBoundingClientRect();
@@ -757,12 +754,11 @@ const getContentRect = (img) => {
     const pr = parseFloat(s.paddingRight);
     const pt = parseFloat(s.paddingTop);
     const pb = parseFloat(s.paddingBottom);
-    return {
-        left: or.left + bl + pl,
-        top: or.top + bt + pt,
-        width: or.width - bl - br - pl - pr,
-        height: or.height - bt - bb - pt - pb
-    };
+    const x = or.left + bl + pl;
+    const y = or.top + bt + pt;
+    const w = or.width - bl - br - pl - pr;
+    const h = or.height - bt - bb - pt - pb;
+    return new DOMRect(x, y, w, h);
 };
 const getImageGeometry = (img) => {
     const r = getContentRect(img);
@@ -781,12 +777,9 @@ const getImageGeometry = (img) => {
         const pos = cs.objectPosition.trim().split(/\s+/);
         const xpos = pos[0] || "50%";
         const ypos = pos[1] || "50%";
-        ir = {
-            left: r.left + getObjectPosition(xpos, r.width - size.width),
-            top: r.top + getObjectPosition(ypos, r.height - size.height),
-            width: size.width,
-            height: size.height,
-        };
+        const x = r.left + getObjectPosition(xpos, r.width - size.width);
+        const y = r.top + getObjectPosition(ypos, r.height - size.height);
+        ir = new DOMRect(x, y, size.width, size.height);
     }
     const vr = clipByAncestors(img, intersection(r, ir));
     return { imageRect: ir, viewRect: vr };
@@ -806,23 +799,14 @@ const clipByAncestors = (img, rect) => {
     return rect;
 };
 const intersection = (rect1, rect2) => {
-    const right1 = rect1.left + rect1.width;
-    const right2 = rect2.left + rect2.width;
-    const bottom1 = rect1.top + rect1.height;
-    const bottom2 = rect2.top + rect2.height;
     const left = Math.max(rect1.left, rect2.left);
     const top = Math.max(rect1.top, rect2.top);
-    const right = Math.min(right1, right2);
-    const bottom = Math.min(bottom1, bottom2);
-    return { left, top, width: right - left, height: bottom - top };
+    const right = Math.min(rect1.right, rect2.right);
+    const bottom = Math.min(rect1.bottom, rect2.bottom);
+    return new DOMRect(left, top, right - left, bottom - top);
 };
 const getScreenRect = () => {
-    return {
-        left:  0,
-        top: 0,
-        width:  innerWidth,
-        height: innerHeight,
-    };
+    return new DOMRect(0, 0, innerWidth, innerHeight);
 };
 const isIrregularImg= img => {
     const cs = getComputedStyle(img);
@@ -905,30 +889,8 @@ const clearOld = () => {
     for (const root of oldRoots)
         root.remove();
 };
-function waitForImage(img) {
-    if (img.complete) {
-        return Promise.resolve();
-    }
-    return new Promise((resolve, reject) => {
-        img.addEventListener("load", resolve, { once: true });
-        img.addEventListener("error", reject, { once: true });
-    });
-}
-const runOnImgs = async (imgs) => {
-    await Promise.all([...imgs].map(waitForImage));
-    for (const img of imgs) {
-        const puzzle = new HexPuzzle(img, DEFAULT_DIVISION, DEFAULT_HAS_BORDER);
-        const err = puzzle.startUI();
-        if (err) alert(err);
-    }
-};
 const init = () => {
     clearOld();
-    const imgs = document.querySelectorAll(".rotpuzzle-target");
-    if (imgs.length) {
-        runOnImgs(imgs);
-        return;
-    }
     const img = findLargestImg();
     const puzzle = new HexPuzzle(img, DEFAULT_DIVISION, DEFAULT_HAS_BORDER);
     const err = puzzle.startUI();
