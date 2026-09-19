@@ -56,7 +56,7 @@ const init = () => {
         return;
     }
     const src = img.currentSrc||img.src;
-    const url = VIEWER_URL + "/src=" + encodeURIComponent(src);
+    const url = VIEWER_URL + "?src=" + encodeURIComponent(src);
     window.open(url, "_blank", "noopener");
 };
 
