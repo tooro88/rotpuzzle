@@ -9,7 +9,7 @@ const BUTTON_OPACITY = 0.7;
 const TRANSITION_DURATION = 0.25;
 const PIECE_FLASH_DURATION = 0.7;
 const BOARD_FLASH_DURATION = 1.7;
-const MARGIN_RATIO = 0.03;
+const MARGIN_RATIO = 0.05;
 const BORDER_RATIO = 0.01;
 const BORDER_MIN_PX = 1;
 const MAX_PIECES = 9999;
@@ -55,25 +55,26 @@ class Puzzle {
         const py = (vr.height - this.puzzleHeight) / 2;
         this.imageOffsetX = this.imageRect.left - (vr.left + px);
         this.imageOffsetY = this.imageRect.top  - (vr.top  + py);
+        this.rootImageOffsetX = this.imageRect.left - vr.left;
+        this.rootImageOffsetY = this.imageRect.top  - vr.top;
         this.root = this.createRootPane(vr);
         this.puzzle = this.createPuzzlePane(px, py);
         this.pieceMargin = this.hasBorder ? PIECE_MARGIN_PX : 0;
 
-        this.pieces = [];
-        this.posns = [];
+        this.slots = [];
         for (const pos of this.genPiecePositions()) {
-            const idx = this.posns.length;
-            this.posns.push(pos);
-            const piece = this.createPiece(idx);
-        }
-        if (this.pieces.length > MAX_PIECES)
+            const idx = this.slots.length;
+            const slot = { idx, pos, piece: null };
+            this.slots.push(slot);
+            this.createPiece(slot);
+        }        
+        if (this.slots.length > MAX_PIECES)
             return "too many pieces";
 
         document.body.appendChild(this.root);
         const panel = this.createUIPanel();
-        this.removeHiddenPieces(panel);
-        this.alives = [...this.pieces];
-        for (const p of this.pieces) {
+        this.alives = this.visiblePieces(panel);
+        for (const p of this.alives) {
             this.drawPiece(p, true);
         }
         this.shuffle();
@@ -85,19 +86,24 @@ class Puzzle {
         root.className = "rotpuzzle-root";
         const rx = vr.left + window.scrollX;
         const ry = vr.top  + window.scrollY;
+        const url = this.img.currentSrc;
+        const ir = this.imageRect;
+        const bx = this.rootImageOffsetX;
+        const by = this.rootImageOffsetY;
         Object.assign(root.style, {
             position: "absolute",
             left: `${rx}px`,
             top:  `${ry}px`,
             width:  `${vr.width}px`,
             height: `${vr.height}px`,
+            backgroundImage: `url("${url}")`,
+            backgroundSize: `${ir.width}px ${ir.height}px`,
+            backgroundPosition: `${bx}px ${by}px`,
             zIndex: BIG_Z,
-            touchAction: "none",
+            display: "block",
             userSelect: "none",
         });
         for (const name of  ['mousedown', 'mouseup', 'click', 'dblclick',
-                             'touchstart', 'touchmove',
-                             'touchend', 'touchcancel',
                              'pointermove', 'pointercancel',
                              'contextmenu',  'pointerdown', 'pointerup',]) {
             root.addEventListener(name, (e) => {
@@ -157,21 +163,21 @@ class Puzzle {
     showAnswer() {
         this.rotatingPiece = null;
         for (const piece of this.alives) {
-            this.setPieceIdx(piece, piece.correctIdx);
+            this.setPieceSlot(piece, piece.correctSlot);
             piece.rotation = 0;
             piece.rotated = false;
             jumpPiece(piece);
         }
     }
     shuffle() {
-        const idxs = this.alives.map(piece => piece.correctIdx);
+        const slots = this.alives.map(piece => piece.correctSlot);
 
         const deg = this.rotationDegree();
         const n = 360 / deg;
         const order = derange(this.alives.length);
         this.alives.forEach((piece, i) => {
-            const idx = idxs[order[i]];
-            this.setPieceIdx(piece, idx);
+            const slot = slots[order[i]];
+            this.setPieceSlot(piece, slot);
             piece.rotation = Math.floor(Math.random() * n) * deg;
             piece.rotated = false;
             jumpPiece(piece);
@@ -182,15 +188,15 @@ class Puzzle {
             jumpPiece(p);
         }
     }
-    createPiece(idx) {
+    createPiece(slot) {
         const piece = {
-            correctIdx: idx,
+            correctSlot: slot,
             rotation: 0,
             rotated: false,
             el: null,
             cover: null,
         };
-        this.setPieceIdx(piece, idx);
+        this.setPieceSlot(piece, slot);
         return piece;
     }
     drawPiece(piece, alive) {
@@ -209,8 +215,18 @@ class Puzzle {
         });
         Object.assign(piece.el.style, {
             cursor: "grab",
+            touchAction: "none",
             zIndex: PIECE_Z,
         });
+        for (const name of  ['touchstart', 'touchmove',
+                             'touchend', 'touchcancel']) {
+            piece.el.addEventListener(name, (e) => {
+                if (e.target.closest('.rotpuzzle-ui'))
+                    return;
+                e.preventDefault();
+                e.stopPropagation();
+            }, { passive: false });
+        }
         piece.el.addEventListener("pointerdown", e => {
             this.beginDrag(piece, e);
         });
@@ -220,13 +236,12 @@ class Puzzle {
         piece.el.addEventListener("transitionend", e => {
             this.onTransitionEnd(piece, e);
         });
-        piece.cover.dataset.pieceIdx = piece.correctIdx;
+        piece.cover.dataset.slotIdx = piece.correctSlot.idx;
     }
-    setPieceIdx(piece, idx) {
-        piece.idx = idx;
-        this.pieces[idx] = piece;
-        const pos = this.posns[idx];
-        this.setPiecePos(piece, ...pos);
+    setPieceSlot(piece, slot) {
+        piece.slot = slot;
+        slot.piece = piece;
+        this.setPiecePos(piece, ...slot.pos);
     }
     setPiecePos(piece, col, row) {
         const left = col * this.hStep;
@@ -282,9 +297,8 @@ class Puzzle {
         return node;
     }
     correctPos(piece) {
-        const pos = this.posns[piece.correctIdx];
         const dummy = {};
-        this.setPiecePos(dummy, ...pos);
+        this.setPiecePos(dummy, ...piece.correctSlot.pos);
         return [dummy.left, dummy.top];
     }
     findOtherPiece(piece, x, y) {
@@ -293,9 +307,9 @@ class Puzzle {
         const sy = y + pr.top;
         for (const el of document.elementsFromPoint(sx, sy)) {
             if (el === this.puzzle) break;
-            if (!("pieceIdx" in el.dataset)) continue;
-            const idx = Number(el.dataset.pieceIdx);
-            const p = this.pieces[idx];
+            if (!("slotIdx" in el.dataset)) continue;
+            const idx = Number(el.dataset.slotIdx);
+            const p = this.slots[idx].piece;
             return p === piece ? null : p;
         }
         return null;
@@ -384,9 +398,9 @@ class Puzzle {
         animatePiece(piece);
     }
     swapPieces(a, b) {
-        const a_idx = a.idx;
-        this.setPieceIdx(a, b.idx);
-        this.setPieceIdx(b, a_idx);
+        const a_slot = a.slot;
+        this.setPieceSlot(a, b.slot);
+        this.setPieceSlot(b, a_slot);
         if (!b.rotated) {
             const deg = this.rotationDegree();
             const dir = Math.random() < 0.5 ? -deg : deg;
@@ -435,18 +449,16 @@ class Puzzle {
     getOtherPuzzle() {
         return [HexPuzzle, "⬡"];
     }
-    removeHiddenPieces(node) {
+    visiblePieces(node) {
         const pr = this.puzzle.getBoundingClientRect();
         const r = node.getBoundingClientRect();
         r.x -= pr.left;
         r.y -= pr.top;
-        const hiddens = this.pieces.filter(p => {
-            return r.left < p.cx && p.cx < r.right
-                && r.top  < p.cy && p.cy < r.bottom;
+        const pieces = this.slots.map(s => s.piece);
+        return pieces.filter(p => {
+            return p.cx < r.left || r.right  < p.cx
+                || p.cy < r.top  || r.bottom < p.cy;
         });
-        for (const piece of hiddens) {
-            this.pieces = this.pieces.filter(p => p !== piece);
-        }
     }
     createUIPanel() {
         const panel = document.createElement("div");
@@ -485,8 +497,10 @@ class Puzzle {
         this.hasBorder = !this.hasBorder;
         this.pieceMargin = this.hasBorder ? PIECE_MARGIN_PX : 0;
         let i = 0;
-        for (const p of this.pieces) {
-            this.setPieceIdx(p, p.idx);
+        for (const s of this.slots) {
+            const p = s.piece;
+            /* recalc coordinate with new margin */
+            this.setPieceSlot(p, p.slot);
         }
         for (const p of this.history) {
             this.drawPiece(p, false);
@@ -855,7 +869,7 @@ const animatePiece = (piece, immediate) => {
     piece.el.style.top  = `${piece.top}px`;
 };
 const isCorrect = piece => {
-    return piece.idx === piece.correctIdx &&
+    return piece.slot === piece.correctSlot &&
         ((piece.rotation % 360) + 360) % 360 === 0;
 };
 const flashNode = (node, parent, duration, callback) => {
