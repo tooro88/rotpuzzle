@@ -1,6 +1,6 @@
 javascript:(() => {
 
-const ROTPUZZLE_VERSION = "0.1";
+const ROTPUZZLE_VERSION = "0.2";
 const DEFAULT_DIVISION = 6;
 const DEFAULT_HAS_BORDER = true;
 const BORDER_COLOR = "#555";
@@ -401,12 +401,13 @@ class Puzzle {
         const a_slot = a.slot;
         this.setPieceSlot(a, b.slot);
         this.setPieceSlot(b, a_slot);
-        if (!b.rotated) {
+        if (!b.rotated || isCorrect(b)) {
             const deg = this.rotationDegree();
             const dir = Math.random() < 0.5 ? -deg : deg;
             b.rotation += dir;
             if (isCorrect(b))
                 b.rotation -= dir * 2;
+            b.rotated = false;
         }
         this.raisePieces([b]);
         animatePiece(b);
