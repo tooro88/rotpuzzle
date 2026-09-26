@@ -1,8 +1,6 @@
-javascript:(() => {
+javascript:(()=>{const EXTPUZZLE_VERSION="0.2";
 
-const EXTPUZZLE_VERSION = "0.1";
 const VIEWER_URL = "https://tooro88.github.io/rotpuzzle/viewpuzzle.html";
-
 const ICON_SIZE = 70;
 
 const clipByAncestors = (img, rect) => {
@@ -56,7 +54,8 @@ const init = () => {
         return;
     }
     const src = img.currentSrc||img.src;
-    const url = VIEWER_URL + "?src=" + encodeURIComponent(src);
+    const url = VIEWER_URL + "?src=" + encodeURIComponent(src)
+                           + "&page=" + encodeURIComponent(location.href);
     window.open(url, "_blank", "noopener");
 };
 
