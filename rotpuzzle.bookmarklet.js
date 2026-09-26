@@ -1,902 +1,1130 @@
-javascript:(() => {
+javascript:(()=>{const VERSION="0.3";
+const DFLT_SHAPE = 6;
+const DFLT_DIVISION = 6;
+const DFLT_HAS_WALL = true;
 
-const ROTPUZZLE_VERSION = "0.2";
-const DEFAULT_DIVISION = 6;
-const DEFAULT_HAS_BORDER = true;
-const BORDER_COLOR = "#555";
-const COVER_COLOR = "#bbb";
-const BUTTON_OPACITY = 0.7;
-const TRANSITION_DURATION = 0.25;
-const PIECE_FLASH_DURATION = 0.7;
-const BOARD_FLASH_DURATION = 1.7;
+const WALL_COL = "#555";
+const COVER_COL = "#bbb";
+const FLASH_COL = "white";
+const HOVER_COL = "#ccc";
+const REJECT_COL = "red";
+const JOIN_COL = "blue";
+const JOIN_FLASH_COL = "#777";
+const BTN_OPACITY = 0.7;
+
+const MOVE_T = 0.25;
+const PIECE_FLASH_T = 1.0;
+const BOARD_FLASH_T = 1.7;
+const WALL_FLASH_T = 1.0;
+const JOIN_FLASH_T = 1.5;
+const PCS_T = 2.5;
+
 const MARGIN_RATIO = 0.05;
-const BORDER_RATIO = 0.01;
-const BORDER_MIN_PX = 1;
+const WALL_RATIO = 0.01;
+const WALL_MIN_PX = 1;
+const PIECE_OVLAP_PX = 1;
+
 const MAX_PIECES = 9999;
 const MAX_DIVISION = 99;
 const ICON_SIZE = 70;
-const PIECE_MARGIN_PX = 1;
 const CLICK_THRESHOLD = 4;
 
 const MAX_Z = 2147483647;
-const BIG_Z = MAX_Z - 10;
+const DRAG_Z = MAX_Z;
+const BIG_Z  = MAX_Z - 10;
+const WALL_FLASH_Z = MAX_Z - 5;
 const COVER_Z = 0;
 const PIECE_Z = 1;
-const hexCoords = [ [-1, 0], [-0.5,  1], [ 0.5,  1],
-                    [ 1, 0], [ 0.5, -1], [-0.5, -1] ];
+const squareCoords = [ [-1, -1], [1, -1], [1, 1], [-1, 1] ];
+const hexCoords = [
+	[0, -1], [ 1, -0.5], [ 1,  0.5], [0,  1], [-1,  0.5], [-1, -0.5] ];
+const squareDirs = [ [0, -1], [1, 0], [0, 1], [-1, 0] ];
+const hexDirs = [
+	[ 0.5, -1], [ 1, 0], [ 0.5,  1], [-0.5,  1], [-1, 0], [-0.5, -1] ];
 
 class Puzzle {
-    constructor(img, division, hasBorder) {
-        this.img = img;
-        this.division = division;
-        this.raisedPieces = [];
-        this.maxDivision = MAX_DIVISION;
-        this.hasBorder = hasBorder;
-        this.rotatingPiece = null;
-        this.draggingPiece = null;
-    }
-    startUI() {
-        if (!this.img) return "no image";
-        this.geom = getImageGeometry(this.img);
-        this.imageRect = this.geom.imageRect;
-        const screenRect = getScreenRect();
-        const vr = this.img.classList.contains("rotpuzzle-target")
-                   ? this.geom.viewRect
-                   : intersection(screenRect, this.geom.viewRect);
-        if (vr.width <= 0 || vr.height <= 0) return "image too small";
-
-        const short = Math.min(vr.width, vr.height);
-        const minMargin = short * MARGIN_RATIO;
-        this.calcSizes(vr.width  - minMargin * 2,
-                       vr.height - minMargin * 2);
-        if (this.size < BORDER_MIN_PX * 10) return "image too small";
-
-        const px = (vr.width  - this.puzzleWidth)  / 2;
-        const py = (vr.height - this.puzzleHeight) / 2;
-        this.imageOffsetX = this.imageRect.left - (vr.left + px);
-        this.imageOffsetY = this.imageRect.top  - (vr.top  + py);
-        this.rootImageOffsetX = this.imageRect.left - vr.left;
-        this.rootImageOffsetY = this.imageRect.top  - vr.top;
-        this.root = this.createRootPane(vr);
-        this.puzzle = this.createPuzzlePane(px, py);
-        this.pieceMargin = this.hasBorder ? PIECE_MARGIN_PX : 0;
-
-        this.slots = [];
-        for (const pos of this.genPiecePositions()) {
-            const idx = this.slots.length;
-            const slot = { idx, pos, piece: null };
-            this.slots.push(slot);
-            this.createPiece(slot);
-        }        
-        if (this.slots.length > MAX_PIECES)
-            return "too many pieces";
-
-        document.body.appendChild(this.root);
-        const panel = this.createUIPanel();
-        this.alives = this.visiblePieces(panel);
-        for (const p of this.alives) {
-            this.drawPiece(p, true);
-        }
-        this.shuffle();
-        this.history = [];
-        return null;
-    }
-    createRootPane(vr) {
-        const root = document.createElement("div");
-        root.className = "rotpuzzle-root";
-        const rx = vr.left + window.scrollX;
-        const ry = vr.top  + window.scrollY;
-        const url = this.img.currentSrc;
-        const ir = this.imageRect;
-        const bx = this.rootImageOffsetX;
-        const by = this.rootImageOffsetY;
-        Object.assign(root.style, {
-            position: "absolute",
-            left: `${rx}px`,
-            top:  `${ry}px`,
-            width:  `${vr.width}px`,
-            height: `${vr.height}px`,
-            backgroundImage: `url("${url}")`,
-            backgroundSize: `${ir.width}px ${ir.height}px`,
-            backgroundPosition: `${bx}px ${by}px`,
-            zIndex: BIG_Z,
-            display: "block",
-            userSelect: "none",
-        });
-        for (const name of  ['mousedown', 'mouseup', 'click', 'dblclick',
-                             'pointermove', 'pointercancel',
-                             'contextmenu',  'pointerdown', 'pointerup',]) {
-            root.addEventListener(name, (e) => {
-                if (e.target.closest('.rotpuzzle-ui'))
-                    return;
-                e.preventDefault();
-                e.stopPropagation();
-            }, { passive: false });
-        }
-        return root;
-    }
-    createPuzzlePane(x, y) {
-        const puzzle = document.createElement("div");
-        Object.assign(puzzle.style, {
-            position: "absolute",
-            left: `${x}px`,
-            top:  `${y}px`,
-            width:  `${this.puzzleWidth}px`,
-            height: `${this.puzzleHeight}px`,
-        });
-        this.root.appendChild(puzzle);
-        return puzzle;
-    }
-    calcSizes(w, h) {
-        const short = Math.min(w, h);
-        const long  = Math.max(w, h);
-        const size = short / this.division;
-        this.borderPx = Math.max(size * BORDER_RATIO, BORDER_MIN_PX);
-        const longCount = Math.floor(long / size);
-        const puzzleShort = size * this.division;
-        const puzzleLong = size * longCount;
-
-        if (w >= h) {
-            this.puzzleWidth = puzzleLong;
-            this.puzzleHeight = puzzleShort;
-            this.rows = this.division;
-            this.cols = longCount;
-        } else {
-            this.puzzleWidth = puzzleShort;
-            this.puzzleHeight = puzzleLong;
-            this.rows = longCount;
-            this.cols = this.division;
-        }
-        this.size = size;
-        this.hRatio = 1;
-        this.vRatio = 1;
-        this.vStep = this.size;
-        this.hStep = this.size;
-    }
-    *genPiecePositions() {
-        for (let row = 0; row < this.rows; row++) {
-            for (let col = 0; col < this.cols; col++) {
-                yield [col, row];
-            }
-        }
-    }
-    showAnswer() {
-        this.rotatingPiece = null;
-        for (const piece of this.alives) {
-            this.setPieceSlot(piece, piece.correctSlot);
-            piece.rotation = 0;
-            piece.rotated = false;
-            jumpPiece(piece);
-        }
-    }
-    shuffle() {
-        const slots = this.alives.map(piece => piece.correctSlot);
-
-        const deg = this.rotationDegree();
-        const n = 360 / deg;
-        const order = derange(this.alives.length);
-        this.alives.forEach((piece, i) => {
-            const slot = slots[order[i]];
-            this.setPieceSlot(piece, slot);
-            piece.rotation = Math.floor(Math.random() * n) * deg;
-            piece.rotated = false;
-            jumpPiece(piece);
-        });
-        if (this.alives.length === 1 && isCorrect(this.alives[0])) {
-            const p = this.alives[0];
-            p.rotation = Math.floor(Math.random() * (n - 1)) * deg + deg;
-            jumpPiece(p);
-        }
-    }
-    createPiece(slot) {
-        const piece = {
-            correctSlot: slot,
-            rotation: 0,
-            rotated: false,
-            el: null,
-            cover: null,
-        };
-        this.setPieceSlot(piece, slot);
-        return piece;
-    }
-    drawPiece(piece, alive) {
-        if (piece.el)
-            piece.el.remove();
-        if (piece.cover)
-            piece.cover.remove();
-        [piece.el, piece.cover] = this.createPieceNode(piece);
-        if (alive) {
-            this.puzzle.appendChild(piece.cover);
-            this.puzzle.appendChild(piece.el);
-        }
-        Object.assign(piece.cover.style, {
-            background: COVER_COLOR,
-            zIndex: COVER_Z,
-        });
-        Object.assign(piece.el.style, {
-            cursor: "grab",
-            touchAction: "none",
-            zIndex: PIECE_Z,
-        });
-        for (const name of  ['touchstart', 'touchmove',
-                             'touchend', 'touchcancel']) {
-            piece.el.addEventListener(name, (e) => {
-                if (e.target.closest('.rotpuzzle-ui'))
-                    return;
-                e.preventDefault();
-                e.stopPropagation();
-            }, { passive: false });
-        }
-        piece.el.addEventListener("pointerdown", e => {
-            this.beginDrag(piece, e);
-        });
-        piece.el.addEventListener("contextmenu", e => {
-            e.preventDefault();
-        });
-        piece.el.addEventListener("transitionend", e => {
-            this.onTransitionEnd(piece, e);
-        });
-        piece.cover.dataset.slotIdx = piece.correctSlot.idx;
-    }
-    setPieceSlot(piece, slot) {
-        piece.slot = slot;
-        slot.piece = piece;
-        this.setPiecePos(piece, ...slot.pos);
-    }
-    setPiecePos(piece, col, row) {
-        const left = col * this.hStep;
-        const top  = row * this.vStep;
-        piece.left = left - this.pieceMargin * this.hRatio;
-        piece.top  = top  - this.pieceMargin * this.vRatio;
-        piece.cx = left + this.size * this.hRatio / 2;
-        piece.cy = top  + this.size * this.vRatio / 2;
-    }
-    createPieceNode(piece) {
-        const size = this.size;
-        const border = this.borderPx;
-        const ir = this.imageRect;
-        const [x, y] = this.correctPos(piece);
-        const url = this.img.currentSrc;
-
-        const b = this.hasBorder ? this.borderPx : 0;
-        const m = this.pieceMargin;
-        const outerSize = this.size + m * 2;
-        const innerSize = this.size - b * 2;
-
-        const ix = (m + b) * this.hRatio;
-        const iy = (m + b) * this.vRatio;
-        const bx = this.imageOffsetX - (x + ix);
-        const by = this.imageOffsetY - (y + iy);
-        const baseNode  = this.createPieceShape(x, y, outerSize);
-        const coverNode = this.createPieceShape(x, y, outerSize);
-        let inner;
-        if (this.hasBorder) {
-            inner = this.createPieceShape(ix, iy, innerSize);
-            inner.style.pointerEvents = "none";
-            baseNode.appendChild(inner);
-            baseNode.style.background = BORDER_COLOR;
-        } else {
-            inner = baseNode;
-        }
-        Object.assign(inner.style, {
-            backgroundImage: `url("${url}")`,
-            backgroundSize: `${ir.width}px ${ir.height}px`,
-            backgroundPosition: `${bx}px ${by}px`,
-        });
-        return [baseNode, coverNode];
-    }
-    createPieceShape(x, y, size) {
-        const node = document.createElement("div");
-        Object.assign(node.style, {
-            position: "absolute",
-            left: `${x}px`,
-            top:  `${y}px`,
-            width:  `${size}px`,
-            height: `${size}px`,
-        });
-        return node;
-    }
-    correctPos(piece) {
-        const dummy = {};
-        this.setPiecePos(dummy, ...piece.correctSlot.pos);
-        return [dummy.left, dummy.top];
-    }
-    findOtherPiece(piece, x, y) {
-        const pr = this.puzzle.getBoundingClientRect();
-        const sx = x + pr.left;
-        const sy = y + pr.top;
-        for (const el of document.elementsFromPoint(sx, sy)) {
-            if (el === this.puzzle) break;
-            if (!("slotIdx" in el.dataset)) continue;
-            const idx = Number(el.dataset.slotIdx);
-            const p = this.slots[idx].piece;
-            return p === piece ? null : p;
-        }
-        return null;
-    }
-    onTransitionEnd(piece, ev) {
-        this.checkAnswer(piece);
-    }
-    beginDrag(piece, e) {
-        if (this.rotatingPiece === piece && isCorrect(piece))
-            /* avoid canceling previous transition who calls checkAnswer() */
-            return;
-        if (e.button !== 0 && e.button !== 2) return;
-        e.preventDefault();
-        piece.el.setPointerCapture(e.pointerId);
-        this.draggingPiece = piece;
-
-        const [startX, startY] = [e.clientX, e.clientY];
-        const [startLeft, startTop] = [piece.left, piece.top];
-        const [startCx, startCy] = [piece.cx, piece.cy];
-        let moved = false;
-        this.lowerPieces();
-        piece.el.style.zIndex = BIG_Z;
-
-        piece.el.style.transition = `transform ${TRANSITION_DURATION}s ease`;
-        piece.el.style.cursor = "grabbing";
-
-        const move = e => {
-            const dx = e.clientX - startX;
-            const dy = e.clientY - startY;
-            const new_left = startLeft + dx;
-            const new_top  = startTop + dy;
-            piece.el.style.left = `${new_left}px`;
-            piece.el.style.top = `${new_top}px`;
-            if (!moved && Math.abs(dx) + Math.abs(dy) <= CLICK_THRESHOLD)
-                return;
-
-            moved = true;
-            this.rotatingPiece = null;
-            const [cx, cy] = [startCx + dx, startCy + dy];
-            const target = this.findOtherPiece(piece, cx, cy);
-            if (!target) return;
-            this.swapPieces(piece, target);
-        };
-
-        const end = e => {
-            piece.el.releasePointerCapture(e.pointerId);
-            this.draggingPiece = null;
-            piece.el.removeEventListener("pointermove", move);
-            piece.el.removeEventListener("pointerup", end);
-            piece.el.removeEventListener("pointercancel", end);
-            piece.el.style.cursor = "grab";
-
-            this.raisePieces([piece]);
-            if (!moved) {
-                this.rotatePiece(piece, e.button === 2 ? 1 : -1);
-                return;
-            }
-            animatePiece(piece);
-        };
-
-        piece.el.addEventListener("pointermove", move);
-        piece.el.addEventListener("pointerup", end);
-        piece.el.addEventListener("pointercancel", end);
-    }
-    lowerPieces() {
-        for (const p of this.raisedPieces) {
-            p.el.style.zIndex = PIECE_Z;
-        }
-        this.raisedPieces = [];
-    }
-    raisePieces(pieces) {
-        this.lowerPieces();
-        let z = BIG_Z - 1;
-        for (const p of pieces) {
-            p.el.style.zIndex = z--;
-            this.raisedPieces.push(p);
-        }
-    }
-    rotationDegree() {
-        return 90;
-    }
-    rotatePiece(piece, direction) {
-        this.rotatingPiece = piece;
-        piece.rotation += direction * this.rotationDegree();
-        piece.rotated = true;
-        animatePiece(piece);
-    }
-    swapPieces(a, b) {
-        const a_slot = a.slot;
-        this.setPieceSlot(a, b.slot);
-        this.setPieceSlot(b, a_slot);
-        if (!b.rotated || isCorrect(b)) {
-            const deg = this.rotationDegree();
-            const dir = Math.random() < 0.5 ? -deg : deg;
-            b.rotation += dir;
-            if (isCorrect(b))
-                b.rotation -= dir * 2;
-            b.rotated = false;
-        }
-        this.raisePieces([b]);
-        animatePiece(b);
-    }
-    isAlive(piece) {
-        return this.alives.includes(piece);
-    }
-    checkAnswer(piece) {
-        if (!isCorrect(piece)) return;
-        if (this.draggingPiece === piece) return;
-        if (!this.isAlive(piece)) return;
-        flashNode(piece.el, this.puzzle, PIECE_FLASH_DURATION);
-        this.addHistory(piece);
-        this.clearPiece(piece);
-        if (this.alives.length === 0) {
-            flashNode(this.puzzle, this.puzzle, BOARD_FLASH_DURATION,
-                      () => this.closeUI());
-        }
-    }
-    addHistory(piece) {
-        this.history.push(piece);
-        this.undoButton.disabled = false;
-    }
-    undo() {
-        if (this.history.length === 0) return;
-        this.rotatingPiece = null;
-        const piece = this.history.pop();
-        this.undoButton.disabled = this.history.length === 0;
-        this.puzzle.appendChild(piece.cover);
-        this.puzzle.appendChild(piece.el);
-        this.alives.push(piece);
-        piece.rotated = false;
-        flashNode(piece.el, this.puzzle, PIECE_FLASH_DURATION);
-    }
-    clearPiece(piece) {
-        piece.el.remove();
-        piece.cover.remove();
-        this.alives = this.alives.filter(p => p !== piece);
-    }
-    getOtherPuzzle() {
-        return [HexPuzzle, "⬡"];
-    }
-    visiblePieces(node) {
-        const pr = this.puzzle.getBoundingClientRect();
-        const r = node.getBoundingClientRect();
-        r.x -= pr.left;
-        r.y -= pr.top;
-        const pieces = this.slots.map(s => s.piece);
-        return pieces.filter(p => {
-            return p.cx < r.left || r.right  < p.cx
-                || p.cy < r.top  || r.bottom < p.cy;
-        });
-    }
-    createUIPanel() {
-        const panel = document.createElement("div");
-        panel.className = "rotpuzzle-ui";
-        Object.assign(panel.style, {
-            position: "absolute",
-            right: 0,
-            top: 0,
-            display: "flex",
-            flexDirection: "row",
-            pointerEvents: "none",
-            zIndex: BIG_Z,
-            opacity: BUTTON_OPACITY,
-        });
-        this.root.appendChild(panel);
-
-        const button = (text, handler) => {
-            return createButton(panel, text, handler);
-        };
-
-        const [PuzzleClass, buttonText] = this.getOtherPuzzle();
-        this.hintButton = button("?", () => this.hint());
-        this.undoButton = button("↶", () => this.undo());
-        button("◌", () => this.toggleBorder());
-        const decButton = button("-", () => this.changeDivision(-1));
-        const incButton = button("+", () => this.changeDivision(1));
-        button(buttonText, () => this.changeShape(PuzzleClass));
-        button("X", () => this.closeUI());
-
-        decButton.disabled = this.division <= 1;
-        incButton.disabled = this.division >= this.maxDivision;
-        this.undoButton.disabled = true;
-        return panel;
-    }
-    toggleBorder() {
-        this.hasBorder = !this.hasBorder;
-        this.pieceMargin = this.hasBorder ? PIECE_MARGIN_PX : 0;
-        let i = 0;
-        for (const s of this.slots) {
-            const p = s.piece;
-            /* recalc coordinate with new margin */
-            this.setPieceSlot(p, p.slot);
-        }
-        for (const p of this.history) {
-            this.drawPiece(p, false);
-        }
-        for (const p of this.alives) {
-            this.drawPiece(p, true);
-            jumpPiece(p);
-        }
-    }
-    hint() {
-        if (this.hintButton.textContent === "?") {
-            this.showAnswer();
-            /* \u{1F500}: TWISTED RIGHTWARDS ARROWS */
-            this.hintButton.textContent = "\u{1F500}";
-        } else {
-            this.shuffle();
-            this.hintButton.textContent = "?";
-        }
-    }
-    changeShape(puzzleClass) {
-        this.closeUI();
-        const puzzle = new puzzleClass(this.img, this.division, this.hasBorder);
-        const err = puzzle.startUI();
-        if (err) alert(err);
-    }
-    changeDivision(delta) {
-        const division = this.division;
-        if (division + delta < 1) return;
-        this.division += delta;
-        this.closeUI();
-        if (this.startUI()) {
-            this.division = division;
-            this.maxDivision = division;
-            this.startUI();
-        }
-    }
-    closeUI() {
-        this.root.remove();
-        this.root = null;
-    }
+constructor(img, cfg) {
+	this.img = img;
+	this.N = cfg.shape;
+	this.division = cfg.division;
+	this.raisedPieces = [];
+	this.maxDivision = MAX_DIVISION;
+	this.hasWall = cfg.hasWall;
+	this.rotatingPiece = null;
+	this.draggingPiece = null;
 }
+startUI(showPcs) {
+	if (!this.img) throw "no image";
+	const geom = imgGeom(this.img);
+	if (!this.img.classList.contains("rotpuzzle-target"))
+		geom.viewBox = clip(scrBox(), geom.viewBox);
 
-class HexPuzzle extends Puzzle {
-    rotationDegree() {
-        return 60;
-    }
-    getOtherPuzzle() {
-        return [Puzzle, "□"];
-    }
-    calcSizes(w, h) {
-        const short = Math.min(w, h);
-        const long  = Math.max(w, h);
-        const size2diameter = 2 / Math.sqrt(3);
-        let size, puzzleShort;
-        if (this.division === 1 && long < short * size2diameter) {
-            size = long / size2diameter;
-            puzzleShort = size;
-        } else {
-            size = short / (this.division + 0.5);
-            puzzleShort = short;
-            const diameter = size * size2diameter;
-            if (long < diameter * 7/4)
-                size = short / this.division;
-        }
-        this.borderPx = Math.max(size * BORDER_RATIO, BORDER_MIN_PX);
-        const diameter = size * size2diameter;
-        const repeatSize = diameter * 3/4;
-        const longCount = Math.floor((long - diameter/4) / repeatSize);
-        const puzzleLong = repeatSize * longCount + diameter / 4;
+	this.lo = newLayout(this.N);
+	if (!this.lo) throw `no such shape: ${this.N}`;
+	this.lo.layout(geom, this.division);
 
-        this.size = size;
-        if (w >= h) {
-            this.isFlat = true;
-            this.hexCoords = hexCoords;
-            this.vRatio = 1;
-            this.hRatio = size2diameter;
-            this.vStep = this.size;
-            this.hStep = this.size * this.hRatio * 3/4;
-            this.puzzleWidth = puzzleLong;
-            this.puzzleHeight = puzzleShort;
-            this.rows = this.division;
-            this.cols = longCount;
-        } else {
-            this.isFlat = false;
-            this.hexCoords = hexCoords.map(([x, y]) => [y, x]);
-            this.vRatio = size2diameter;
-            this.hRatio = 1;
-            this.vStep = this.size * this.vRatio * 3/4;
-            this.hStep = this.size;
-            this.puzzleWidth = puzzleShort;
-            this.puzzleHeight = puzzleLong;
-            this.rows = longCount;
-            this.cols = this.division;
-        }
-    }
-    *genPiecePositions() {
-        for (let row = 0; row < this.rows; row++) {
-            for (let col = 0; col < this.cols; col++) {
-                let colDelta = 0;
-                let rowDelta = 0;
-                if (this.isFlat && col % 2 === 1)
-                    rowDelta = 0.5;
-                else if (!this.isFlat && row % 2 === 1)
-                    colDelta = 0.5;
-                yield [col + colDelta, row + rowDelta];
-            }
-        }
-    }
-    createPieceShape(x, y, size) {
-        const w = size * this.hRatio;
-        const h = size * this.vRatio;
-        const node = document.createElement("div");
-        const path = this.toPath(this.clipPoints(w, h));
-        Object.assign(node.style, {
-            position: "absolute",
-            left: `${x}px`,
-            top: `${y}px`,
-            width: `${w}px`,
-            height: `${h}px`,
-            clipPath: `polygon(${path})`,
-        });
-        return node;
-    }
-    toPath(coords) {
-        return coords.map(([x, y]) => `${x}px ${y}px`).join(',');
-    }
-    clipPoints(w, h) {
-        const half_w = w / 2;
-        const half_h = h / 2;
-        return this.hexCoords.map(([x, y]) => {
-            return [x * half_w + half_w, y * half_h + half_h];
-        });
-    }
+	this.root = this.mkRootPane();
+
+	this.slots = [];
+	for (const pos of this.lo.genPiecePositions()) {
+		const idx = this.slots.length;
+		const slot = { idx, pos, piece: null, visible: false,
+			       nbors: [], };
+		this.slots.push(slot);
+		this.mkPiece(slot);
+	}
+	if (this.slots.length > MAX_PIECES)
+		throw "too many pieces";
+
+	document.body.appendChild(this.root);
+	const panel = this.mkUIPanel();
+	this.alives = this.visiblePieces(panel);
+	for (const p of this.alives)
+		p.slot.visible = true;
+	this.lo.calcAdjacency(this.slots);
+	this.mkClipStock();
+	for (const p of this.alives) {
+		this.drawPiece(p);
+	}
+	this.shuffle();
+	this.history = [];
+	if (showPcs)
+		this.flashPcs();
 }
-const createButton = (panel, text, handler) => {
-    const button = document.createElement("button");
-    button.textContent = text;
-    Object.assign(button.style, {
-        width: "1.5em",
-        height: "1.5em",
-        padding: 0,
-        font: "bold 1em sans-serif",
-        lineHeight: 1,
-        pointerEvents: "auto",
-    });
-    button.addEventListener("click", handler);
-    panel.appendChild(button);
-    return button;
+mkRootPane() {
+	const vr = this.lo.viewBox();
+	const rx = vr.left + window.scrollX;
+	const ry = vr.top + window.scrollY;
+	const [ix, iy, iw, ih] = this.lo.imgPos(0, 0);
+	const url = this.img.currentSrc;
+	const root = mkdiv(rx, ry, vr.width, vr.height, {
+		backgroundImage: `url("${url}")`,
+		backgroundSize: px(iw, ih),
+		backgroundPosition: px(ix, iy),
+		zIndex: BIG_Z,
+		display: "block",
+		userSelect: "none",
+	});
+	root.className = "rotpuzzle-root";
+	for (const name of  ['mousedown', 'mouseup', 'click', 'dblclick',
+			     'pointermove', 'pointercancel',
+			     'contextmenu',  'pointerdown', 'pointerup',]) {
+		root.addEventListener(name, (e) => {
+			if (e.target.closest('.rotpuzzle-ui'))
+				return;
+			e.preventDefault();
+			e.stopPropagation();
+		}, { passive: false });
+	}
+	root.addEventListener("pointerout", (e) => {
+		if (e.relatedTarget === this.root)
+			this.lastEnterGrp = null;
+	});
+	return root;
+}
+showAnswer() {
+	this.rotatingPiece = null;
+	for (const p of this.alives) {
+		this.setPieceSlot(p, p.correctSlot);
+		p.rotation = 0;
+		p.rotated = false;
+		this.jumpPiece(p);
+	}
+	this.initGrps();
+}
+shuffle() {
+	const slots = this.alives.map(p => p.correctSlot);
+	const order = derange(this.alives.length);
+	this.alives.forEach((p, i) => {
+		const slot = slots[order[i]];
+		this.setPieceSlot(p, slot);
+		p.rotation = Math.floor(Math.random() * this.N);
+		p.rotated = false;
+		this.jumpPiece(p);
+	});
+	if (this.alives.length === 1 && this.isCorrect(this.alives[0])) {
+		const p = this.alives[0];
+		p.rotation = Math.floor(Math.random() * (this.N - 1)) + 1;
+		this.jumpPiece(p);
+	}
+	this.initGrps();
+}
+initGrps() {
+	for (const p of this.alives)
+		this.setGrp(new Set([p]));
+}
+mkPiece(slot) {
+	const p = {
+		correctSlot: slot,
+		correctNbors: [],
+		rotation: 0,
+		alive: true,
+		rotated: false,
+		el: null,
+		cover: null,
+		inner: null,
+	};
+	p.grp = new Set([p]);
+	this.setPieceSlot(p, slot);
+	return p;
+}
+drawPiece(p) {
+	[p.el, p.cover] = this.mkPieceNode(p);
+	this.drawWall(p);
+	this.root.appendChild(p.cover);
+	this.root.appendChild(p.el);
+	Object.assign(p.cover.style, {
+		background: COVER_COL,
+		zIndex: COVER_Z,
+	});
+	Object.assign(p.el.style, {
+		cursor: "grab",
+		touchAction: "none",
+		zIndex: PIECE_Z,
+	});
+	for (const name of  ['touchstart', 'touchmove',
+			     'touchend', 'touchcancel']) {
+		p.el.addEventListener(name, (e) => {
+			if (e.target.closest('.rotpuzzle-ui'))
+				return;
+			e.preventDefault();
+			e.stopPropagation();
+		}, { passive: false });
+	}
+	p.el.addEventListener("pointerdown", e => {
+		this.beginDrag(p, e);
+	});
+	p.el.addEventListener("transitionend", e => {
+		this.onTransitionEnd(p, e);
+	});
+	p.el.addEventListener("mouseenter", e => {
+		this.onEnter(p);
+	});
+	p.cover.dataset.slotIdx = p.correctSlot.idx;
+}
+drawWall(p) {
+	p.el.replaceChildren();
+	if (!this.hasWall) return;
+	for (let i = 0; i < this.N; ++i) {
+		const dir = mod(i + p.rotation, this.N);
+		if (needWall(p, dir))
+			this.addWall(p.el, i, WALL_COL);
+	}
+}
+addWall(el, dir, col) {
+	const path = this.wallClips[dir];
+	const div = mkdiv(0, 0, el.style.width, el.style.height, {
+		backgroundColor: col,
+		clipPath: `polygon(${path})`,
+		pointerEvents: "none",
+	});
+	el.appendChild(div);
+}
+mkClipStock() {
+	const ww = this.lo.wallWidth();
+	this.wallClips = this.mkWallClips(ww);
+}
+mkWallClips(ww) {
+	return [...Array(this.N).keys()].map(i => this.mkWallClip(i, ww));
+}
+mkWallClip(dir, ww) {
+	const next = mod(dir + 1, this.N);
+	const pts = [
+		this.lo.wallCoord(dir,  false, false, ww),
+		this.lo.wallCoord(next, false, false, ww),
+		this.lo.wallCoord(next, true,  false, ww),
+		this.lo.wallCoord(dir,  false, true,  ww)
+	];
+	return toPath(pts);
+}
+setGrp(grp) {
+	for (const p of grp)
+		p.grp = grp;
+	for (const p of grp)
+		this.drawWall(p);
+}
+setPieceSlot(p, slot) {
+	p.slot = slot;
+	slot.piece = p;
+	this.lo.setPiecePos(p, slot.pos);
+}
+mkPieceNode(p) {
+	const [x, y] = this.correctPos(p);
+	const url = this.img.currentSrc;
+	const sz = this.lo.pieceSz();
+	const [ix, iy, iw, ih] = this.lo.imgPos(x, y);
+	const el    = this.lo.mkPieceShape(x, y, sz);
+	const cover = this.lo.mkPieceShape(x, y, sz);
+	Object.assign(el.style, {
+		backgroundImage: `url("${url}")`,
+		backgroundSize: px(iw, ih),
+		backgroundPosition: px(ix, iy),
+	});
+	return [el, cover];
+}
+correctPos(p) {
+	const dummy = {};
+	this.lo.setPiecePos(dummy, p.correctSlot.pos);
+	return [dummy.x, dummy.y];
+}
+findSlotAt(x, y) {
+	const r = getBBox(this.root);
+	const sx = x + r.left;
+	const sy = y + r.top;
+	for (const el of document.elementsFromPoint(sx, sy)) {
+		if (el === this.root) break;
+		if (!("slotIdx" in el.dataset)) continue;
+		const idx = Number(el.dataset.slotIdx);
+		return this.slots[idx];
+	}
+	return null;
+}
+onTransitionEnd(p, ev) {
+	this.checkAnswer(p);
+}
+onEnter(p) {
+	if (this.lastEnterGrp === p.grp) return;
+	this.lastEnterGrp = p.grp;
+	this.flashWall(p.grp, HOVER_COL);
+}
+beginDrag(p, e) {
+	if (this.rotatingPiece === p && this.isCorrect(p))
+		return;
+	if (e.button !== 0 && e.button !== 2) return;
+	e.preventDefault();
+	p.el.setPointerCapture(e.pointerId);
+	this.lastDragGrp = new Set();
+	this.draggingPiece = p;
+	let cachedDestSlot = null;
+	const [startX, startY] = [e.clientX, e.clientY];
+	const [startCx, startCy] = [p.cx, p.cy];
+	let moved = false;
+	this.lowerPieces();
+	const grp = p.grp;
+	for (const pp of grp) {
+		pp.el.style.zIndex = DRAG_Z;
+		pp.el.style.transition = `transform ${MOVE_T}s ease`;
+		pp.startX = pp.x;
+		pp.startY = pp.y;
+	}
+	p.el.style.cursor = "grabbing";
+
+	const move = e => {
+		const dx = e.clientX - startX;
+		const dy = e.clientY - startY;
+		for (const p of grp) {
+			p.el.style.left = px(p.startX + dx);
+			p.el.style.top  = px(p.startY + dy);
+		}
+		if (!moved && Math.abs(dx) + Math.abs(dy) <= CLICK_THRESHOLD)
+			return;
+
+		moved = true;
+		this.rotatingPiece = null;
+		const [cx, cy] = [startCx + dx, startCy + dy];
+		const slot = this.findSlotAt(cx, cy);
+		if (!slot || slot.piece === p || slot === cachedDestSlot)
+			return;
+		cachedDestSlot = slot;
+		this.moveGrp(p, slot);
+	};
+
+	const end = e => {
+		p.el.releasePointerCapture(e.pointerId);
+		this.draggingPiece = null;
+		p.el.removeEventListener("pointermove", move);
+		p.el.removeEventListener("pointerup", end);
+		p.el.removeEventListener("pointercancel", end);
+		p.el.style.cursor = "grab";
+		this.lastDragGrp = new Set(grp);
+		this.raisePieces(grp);
+		if (!moved) {
+			this.rotatePiece(p, e.button === 2 ? 1 : -1);
+			return;
+		}
+		for (const pp of grp)
+			this.animatePiece(pp);
+	};
+
+	p.el.addEventListener("pointermove", move);
+	p.el.addEventListener("pointerup", end);
+	p.el.addEventListener("pointercancel", end);
+}
+lowerPieces() {
+	for (const p of this.raisedPieces) {
+		p.el.style.zIndex = PIECE_Z;
+	}
+	this.raisedPieces = [];
+}
+raisePieces(pieces) {
+	this.lowerPieces();
+	let z = BIG_Z - 1;
+	for (const p of pieces) {
+		p.el.style.zIndex = z--;
+		this.raisedPieces.push(p);
+	}
+}
+rotatePiece(p, direction) {
+	if (p.grp.size > 1) {
+		if (this.moveGrp(p, p.slot, direction))
+			return;
+		this.splitGrp(p);
+	}
+	this.rotatingPiece = p;
+	p.rotation += direction;
+	p.rotated = true;
+	this.animatePiece(p);
+}
+moveGrp(p, slot, rotDir=0) {
+	for (const pp of p.grp)
+		pp.visited = false;
+	const backwards = new Map();
+	const victims = [];
+	if (!this.calcDestDFS(p, slot, p.grp, backwards, victims,
+			      rotDir))
+		return false;
+	if (!rotDir)
+		this.raisePieces(victims);
+	for (const pp of p.grp)
+		pp.visited = false;
+	for (const v of victims) {
+		v.visited = false;
+		this.shiftSlot(v, backwards);
+		this.randomRotate(v);
+		this.animatePiece(v);
+	}
+	for (const pp of p.grp)
+		this.shiftSlot(pp, backwards);
+	if (rotDir) {
+		for (const pp of p.grp) {
+			pp.rotation += rotDir;
+			pp.rotated = true;
+			this.animatePiece(pp);
+		}
+	}
+	return true;
+}
+calcDestDFS(p, slot, grp, backwards, victims, rotDir) {
+	if (!slot) return false;
+	if (p.visited) return true;
+	p.visited = true;
+	const pp = slot.piece;
+	if (!pp.alive) return false;
+	backwards.set(slot, p.slot);
+	if (grp !== pp.grp) {
+		if (pp.grp.size > 1) {
+			this.flashWall(pp.grp, REJECT_COL);
+			return false;
+		}
+		victims.push(pp)
+	}
+	for (let dir = 0; dir < this.N; ++dir) {
+		const np = adjPiece(p, dir);
+		if (grp !== np?.grp) continue;
+		const ns = slot.nbors[mod(dir + rotDir, this.N)];
+		if (!this.calcDestDFS(np, ns, grp, backwards, victims, rotDir))
+			return false;
+	}
+	return true;
+}
+shiftSlot(p, backwards) {
+	if (p.visited) return;
+	p.visited = true;
+	let slot = p.slot;
+	while (true) {
+		const prevSlot = backwards.get(slot);
+		if (!prevSlot) break;
+		const pp = prevSlot.piece;
+		if (pp.visited) break;
+		pp.visited = true;
+		this.setPieceSlot(pp, slot);
+		slot = prevSlot;
+	}
+	this.setPieceSlot(p, slot);
+}
+randomRotate(p) {
+	if (p.rotated && !this.isCorrect(p))
+		return;
+	const dir = Math.random() < 0.5 ? -1 : 1;
+	p.rotation += dir;
+	if (this.isCorrect(p))
+		p.rotation -= dir * 2;
+	p.rotated = false;
+}
+swapPieces(a, b) {
+	const a_slot = a.slot;
+	this.setPieceSlot(a, b.slot);
+	this.setPieceSlot(b, a_slot);
+	if (!b.rotated || this.isCorrect(b)) {
+		const dir = Math.random() < 0.5 ? -1 : 1;
+		b.rotation += dir;
+		if (this.isCorrect(b))
+			b.rotation -= dir * 2;
+		b.rotated = false;
+	}
+	this.raisePieces([b]);
+	this.animatePiece(b);
+}
+isAlive(p) {
+	return p.alive;
+}
+checkAnswer(p) {
+	if (!this.isCorrect(p)) {
+		this.checkJoin(p);
+		return;
+	}
+	if (this.draggingPiece === p) return;
+	if (!this.isAlive(p)) return;
+	flashNode(p.el, this.root);
+	this.addHistory(p);
+	this.clearPiece(p);
+	if (this.alives.length === 0) {
+		flashNode(this.root, this.root,
+			  { t: BOARD_FLASH_T, cb: ()=>this.closeUI() });
+	}
+}
+checkJoin(p) {
+	if (!this.lastDragGrp.has(p)) return;
+	const nps = this.findCorrectNbors(p);
+	if (nps.length === 0) return;
+	const grp = new Set(p.grp);
+	for (const np of nps) {
+		for (const nnp of np.grp) {
+			grp.add(nnp);
+		}
+	}
+	this.setGrp(grp);
+	this.joinFlash(grp);
+}
+joinFlash(grp) {
+	this.flashWall(grp, JOIN_COL);
+	for (const p of grp)
+		flashNode(p.el, this.root,
+			  { col: JOIN_FLASH_COL, t: JOIN_FLASH_T });
+}
+splitGrp(p) {
+	const grp = p.grp;
+	grp.delete(p);
+	this.setGrp(new Set([p]));
+	for (const pp of grp) {
+		pp.visited = false;
+	}
+	const newGrps = [];
+	for (let dir = 0; dir < this.N; ++dir) {
+		const newGrp = new Set();
+		this.splitDFS(adjPiece(p, dir), grp, newGrp);
+		this.setGrp(newGrp);
+		newGrps.push(newGrp);
+	}
+	for (const ng of newGrps) {
+		if (ng.size > 0)
+			this.flashWall(grp, JOIN_COL);
+	}
+}
+splitDFS(p, grp, newGrp) {
+	if (!p || p.visited) return;
+	p.visited = true;
+	if (grp !== p.grp) return;
+	newGrp.add(p);
+	for (let dir = 0; dir < this.N; ++dir) {
+		const pp = adjPiece(p, dir);
+		this.splitDFS(pp, grp, newGrp);
+	}
+}
+flashWall(grp, col="green", duration=WALL_FLASH_T) {
+	for (const p of grp)
+		this.flashWall1(p, col, duration);
+}
+flashWall1(p, col, duration) {
+	const cs = getCS(p.el);
+	const div = mkdiv(cs.left, cs.top, cs.width, cs.height, {
+		pointerEvents: "none",
+		zIndex: WALL_FLASH_Z,
+	});
+	for (let dir = 0; dir < this.N; ++dir) {
+		if (needWall(p, dir))
+			this.addWall(div, dir, col);
+	}
+	this.root.appendChild(div);
+	kickFlash(div, duration);
+}
+findCorrectNbors(p) {
+	const N = this.N;
+	const ans = [];
+	for (let i = 0; i < N; ++i) {
+		const np = adjPiece(p, i);
+		if (!np?.alive) continue;
+		if (p.grp === np.grp) continue;
+		const cp = p.correctNbors[mod(i - p.rotation, N)];
+		if (np === cp && mod(np.rotation, N) === mod(p.rotation, N))
+			ans.push(np);
+	}
+	return ans;
+}
+addHistory(p) {
+	this.history.push(p);
+	this.undoBtn.disabled = false;
+}
+undo() {
+	if (this.history.length === 0) return;
+	this.rotatingPiece = null;
+	const p = this.history.pop();
+	this.undoBtn.disabled = this.history.length === 0;
+	this.root.appendChild(p.cover);
+	this.root.appendChild(p.el);
+	p.alive = true;
+	this.alives.push(p);
+	p.rotated = false;
+	this.drawWall(p);
+	flashNode(p.el, this.root);
+}
+clearPiece(p) {
+	this.ungroup(p);
+	p.el.remove();
+	p.cover.remove();
+	p.alive = false;
+	this.alives = this.alives.filter(pp => pp !== p);
+}
+ungroup(p) {
+	for (const pp of p.grp) {
+		this.setGrp(new Set([pp]));
+	}
+}
+visiblePieces(node) {
+	const rr = getBBox(this.root);
+	const r = getBBox(node);
+	r.x -= rr.left;
+	r.y -= rr.top;
+	const pieces = this.slots.map(s => s.piece);
+	return pieces.filter(p => {
+		return p.cx < r.left || r.right  < p.cx
+			|| p.cy < r.top  || r.bottom < p.cy;
+	});
+}
+jumpPiece(p) {
+	this.animatePiece(p, true);
+}
+animatePiece(p, immediate) {
+	const t = MOVE_T;
+	p.el.style.transition = immediate ? "none"
+		: `transform ${t}s ease, left ${t}s ease, top ${t}s ease`;
+	const deg = p.rotation * 360 / this.N;
+	p.el.style.transform = `rotate(${deg}deg)`;
+	p.el.style.left = px(p.x);
+	p.el.style.top  = px(p.y);
+}
+isCorrect(p) {
+	return p.slot === p.correctSlot &&
+		mod(p.rotation, this.N) === 0;
+}
+mkUIPanel() {
+	const panel = mkdiv(null, 0, null, null, {
+		right: 0,
+		display: "flex",
+		flexDirection: "row",
+		pointerEvents: "none",
+		zIndex: BIG_Z,
+		opacity: BTN_OPACITY,
+	});
+	panel.className = "rotpuzzle-ui";
+	this.root.appendChild(panel);
+	const btn = (text, handler) => mkBtn(panel, text, handler);
+	const [shape, btnText] = this.lo.getOtherPuzzle();
+
+	this.hintBtn = btn("?", () => this.hint());
+	this.undoBtn = btn("↶", () => this.undo());
+	btn("◌", () => this.toggleWall());
+	const decBtn = btn("-", () => this.chgDivision(-1));
+	const incBtn = btn("+", () => this.chgDivision(1));
+	btn(btnText, () => this.chgShape(shape));
+	btn("X", () => this.closeUI());
+
+	decBtn.disabled = this.division <= 1;
+	incBtn.disabled = this.division >= this.maxDivision;
+	this.undoBtn.disabled = true;
+	return panel;
+}
+toggleWall() {
+	this.hasWall = !this.hasWall;
+	for (const p of this.alives)
+		this.drawWall(p);
+}
+hint() {
+	if (this.hintBtn.textContent === "?") {
+		this.showAnswer();
+		/* \u{1F500}: TWISTED RIGHTWARDS ARROWS */
+		this.hintBtn.textContent = "\u{1F500}";
+	} else {
+		this.shuffle();
+		this.hintBtn.textContent = "?";
+	}
+	this.flashPcs();
+}
+chgShape(shape) {
+	this.closeUI();
+	const cfg = { division: this.division, hasWall: this.hasWall, shape };
+	const puzzle = new Puzzle(this.img, cfg);
+	try {
+		puzzle.startUI();
+	} catch (e) {
+		if (typeof e !== "string") throw e;
+		alert(e);
+	}
+}
+chgDivision(delta) {
+	const division = this.division;
+	if (division + delta < 1) return;
+	this.division += delta;
+	this.closeUI();
+	try {
+		this.startUI(true);
+	} catch (e) {
+		if (typeof e !== "string") throw e;
+		this.division = division;
+		this.maxDivision = division;
+		this.startUI(true);
+	}
+}
+flashPcs() {
+	const vr = this.lo.viewBox();
+	const pcs = this.alives.length;
+	const [w, h] = [vr.width * 2/3, vr.height * 2/3];
+	const div = mkText(`${pcs} pcs`, w, h, "white");
+	div.style.zIndex = MAX_Z;
+	div.style.pointerEvents = "none";
+	this.root.appendChild(div);
+	kickFlash(div, PCS_T);
+}
+closeUI() {
+	this.root.remove();
+}
+}
+const newLayout = n => {
+	if (n === 4) return new Square();
+	if (n === 6) return new Hex();
+	return null;
+};
+class Layout {
+layout(geom, division) {
+	const vr = geom.viewBox;
+	this.imgBox = geom.imgBox;
+	this.vBox = vr;
+	if (vr.width <= 0 || vr.height <= 0) throw "image too small";
+
+	const short = Math.min(vr.width, vr.height);
+	const minMargin = short * MARGIN_RATIO;
+	this.layoutShape(vr.width  - minMargin * 2, vr.height - minMargin * 2, division);
+	if (this.sz < WALL_MIN_PX * 10) throw "image too small";
+
+	this.areaX = (vr.width  - this.areaW) / 2;
+	this.areaY = (vr.height - this.areaH) / 2;
+	this.imgOffset = [this.imgBox.left - vr.left, this.imgBox.top  - vr.top];
+	this.wallPx = Math.max(this.sz * WALL_RATIO, WALL_MIN_PX);
+	this.ovlapPx = PIECE_OVLAP_PX;
+}
+imgPos(x, y) {
+	const [ix, iy] = this.imgOffset;
+	return [ix - x, iy - y, this.imgBox.width, this.imgBox.height];
+}
+setPiecePos(p, pos) {
+	const [col, row] = pos;
+	const x = this.areaX + col * this.sz;
+	const y  = this.areaY + row * this.vStep;
+	p.x  = x - this.ovlapPx;
+	p.y  = y - this.ovlapPx * this.vRatio;
+	p.cx = x + this.sz / 2;
+	p.cy = y + this.sz * this.vRatio / 2;
+}
+wallCoord(vertex, hasL, hasR, wallW) {
+	const sz = this.sz + this.ovlapPx * 2;
+	const w = sz / 2;
+	const h = sz * this.vRatio / 2;
+	const bw = wallW;
+	const bh = wallW * this.vRatio;
+	const pts = this.shapeCoords();
+	let [x, y] = pts[vertex];
+	const [lx, ly] = pts[mod(vertex - 1, this.N)];
+	const [rx, ry] = pts[mod(vertex + 1, this.N)];
+	const k = this.edgeVecCoeff();
+	const [dlx, dly] = [(lx - x) * k, (ly - y) * k];
+	const [drx, dry] = [(rx - x) * k, (ry - y) * k];
+	x *= w;
+	y *= h;
+	if (hasL) {
+		x += drx * bw;
+		y += dry * bh;
+	}
+	if (hasR) {
+		x += dlx * bw;
+		y += dly * bh;
+	}
+	return [x + w, y + h];
+}
+calcAdjacency(slots) {
+	const pos2slot = new Map;
+	for (const slot of slots) {
+		pos2slot.set(JSON.stringify(slot.pos), slot);
+	}
+	for (const slot of slots) {
+		const p = slot.piece;
+		const [col, row] = slot.pos;
+		for (let dir = 0; dir < this.N; ++dir) {
+			const [dcol, drow] = this.dirToDelta(dir);
+			const npos = [col + dcol, row + drow];
+			const s = pos2slot.get(JSON.stringify(npos));
+			slot.nbors[dir] = s?.visible ? s : null;
+			p.correctNbors[dir] = s?.visible ? s.piece : null;
+		}
+	}
+}
+viewBox() { return this.vBox; };
+pieceSz() { return this.sz + this.ovlapPx * 2; };
+wallWidth() { return this.ovlapPx + this.wallPx; }
+};
+class Square extends Layout {
+constructor() { super(); this.N = 4; }
+layoutShape(w, h, division) {
+	const short = Math.min(w, h);
+	const long  = Math.max(w, h);
+	const sz = short / division;
+	const longCount = Math.floor(long / sz);
+	const areaShort = sz * division;
+	const areaLong = sz * longCount;
+	if (w >= h) {
+		this.areaW = areaLong;
+		this.areaH = areaShort;
+		this.rows = division;
+		this.cols = longCount;
+	} else {
+		this.areaW = areaShort;
+		this.areaH = areaLong;
+		this.rows = longCount;
+		this.cols = division;
+	}
+	this.sz = sz;
+	this.vRatio = 1;
+	this.vStep = sz;
+}
+*genPiecePositions() {
+	for (let row = 0; row < this.rows; row++) {
+		for (let col = 0; col < this.cols; col++) {
+			yield [col, row];
+		}
+	}
+}
+getOtherPuzzle() { return [6, "⬡"]; }
+dirToDelta(dir) { return squareDirs[dir]; }
+shapeCoords() { return squareCoords; }
+wallOffsets() { return squareWallOffsets; }
+mkPieceShape(x, y, sz) { return mkdiv(x, y, sz, sz); }
+edgeVecCoeff() { return 0.5; }
+}
+class Hex extends Layout{
+constructor() { super(); this.N = 6; }
+getOtherPuzzle() { return [4, "□"]; }
+dirToDelta(dir) { return hexDirs[dir]; }
+shapeCoords() { return hexCoords; }
+wallOffsets() { return hexWallOffsets; }
+edgeVecCoeff() { return 1; }
+layoutShape(w, h, division) {
+	this.vRatio = 2 / Math.sqrt(3);
+	const hSz = w / (division + 0.5);
+	const vRep = h / (division + 1/3);
+	const vSz = vRep * 4/3 / this.vRatio;
+	let sz = Math.min(hSz, vSz);
+	const diam = sz * this.vRatio;
+	const rep = diam * 3/4;
+	if (hSz < vSz) {
+		this.cols = division;
+		this.rows = Math.floor((h - diam/4) / rep);
+	} else {
+		this.rows = division;
+		this.cols = Math.floor((w - sz/2) / sz);
+	}
+	this.areaW = sz * (this.cols + 0.5);
+	this.areaH = rep * this.rows + diam / 4;
+	this.vStep = sz * this.vRatio * 3/4;
+	this.sz = sz;
+}
+*genPiecePositions() {
+	for (let row = 0; row < this.rows; row++) {
+		for (let col = 0; col < this.cols; col++) {
+			const d = row % 2 ? 0.5 : 0;
+			yield [col + d, row];
+		}
+	}
+}
+mkPieceShape(x, y, sz) {
+	const w = sz;
+	const h = sz * this.vRatio;
+	const path = toPath(this.clipPoints(w, h));
+	const node = mkdiv(x, y, w, h, {
+		clipPath: `polygon(${path})`,
+	});
+	return node;
+}
+clipPoints(w, h) {
+	const hw = w / 2;
+	const hh = h / 2;
+	return this.shapeCoords().map(([x, y]) => {
+		return [x * hw + hw, y * hh + hh];
+	});
+}
+}
+const mkBtn = (panel, text, handler) => {
+	const btn = document.createElement("button");
+	btn.textContent = text;
+	Object.assign(btn.style, {
+		width: "1.5em",
+		height: "1.5em",
+		padding: 0,
+		font: "bold 1em sans-serif",
+		lineHeight: 1,
+		pointerEvents: "auto",
+	});
+	btn.addEventListener("click", handler);
+	panel.appendChild(btn);
+	return btn;
 };
 const derange = n => {
-    if (n === 1) return [0];
-    let a;
-    do {
-        a = [...Array(n).keys()];
-        for (let i = n - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [a[i], a[j]] = [a[j], a[i]];
-        }
-    } while (a.some((x, i) => x === i));
-    return a;
+	if (n === 1) return [0];
+	let a;
+	do {
+		a = [...Array(n).keys()];
+		for (let i = n - 1; i > 0; i--) {
+			const j = Math.floor(Math.random() * (i + 1));
+			[a[i], a[j]] = [a[j], a[i]];
+		}
+	} while (a.some((x, i) => x === i));
+	return a;
 };
-const getObjectPosition = (value, available) => {
-    if (value.endsWith("%")) {
-        return available * parseFloat(value) / 100;
-    }
-    switch (value) {
-    case "left":
-    case "top":
-        return 0;
-    case "center":
-        return available / 2;
-    case "right":
-    case "bottom":
-        return available;
-    default:
-        return parseFloat(value) || 0;
-    }
+const calcObjPos = (val, avail) => {
+	if (val.endsWith("%")) {
+		return avail * parseFloat(val) / 100;
+	}
+	return parseFloat(val) || 0;
 };
-const getObjectFitSize = (rect, iw, ih, objectFit) => {
-    switch (objectFit) {
-    case "contain": {
-        const scale = Math.min(rect.width / iw, rect.height / ih);
-        return {
-            width: iw * scale,
-            height: ih * scale,
-        };
-    }
-    case "cover": {
-        const scale = Math.max(rect.width / iw, rect.height / ih);
-        return {
-            width: iw * scale,
-            height: ih * scale,
-        };
-    }
-    case "none":
-        return {
-            width: iw,
-            height: ih,
-        };
-    case "scale-down": {
-        const scale = Math.min(1, Math.min(rect.width / iw, rect.height / ih));
-        return {
-            width: iw * scale,
-            height: ih * scale,
-        };
-    }
-    case "fill":
-    default:
-        return {
-            width: rect.width,
-            height: rect.height,
-        };
-    }
+const calcObjFit = (rect, iw, ih, fit) => {
+	const scale = {
+		contain: Math.min(rect.width / iw, rect.height / ih),
+		cover:   Math.max(rect.width / iw, rect.height / ih),
+		none: 1,
+		"scale-down":
+		  Math.min(1, Math.min(rect.width / iw, rect.height / ih))
+	}[fit];
+	if (scale) return { w: iw * scale, h: ih * scale };
+	return { w: rect.width, h: rect.height };
 };
-const getImageRenderer = (img) => {
-    if (getComputedStyle(img).opacity !== "0") return null;
-    const parent = img.parentElement;
-    if (!parent) return null;
-    for (const e of parent.children) {
-        if (e === img) continue;
-        if (getComputedStyle(e).backgroundImage !== "none") {
-            return e;
-        }
-    }
-    return null;
+const getXRenderer = (img) => {
+	if (getCS(img).opacity !== "0") return null;
+	const parent = img.parentElement;
+	if (!parent) return null;
+	for (const e of parent.children) {
+		if (e === img) continue;
+		if (getCS(e).backgroundImage !== "none") {
+			return e;
+		}
+	}
+	return null;
 };
-const getRenderedRect = (renderer, iw, ih) => {
-    const rr = renderer.getBoundingClientRect();
-    const cs = getComputedStyle(renderer);
-    if (cs.backgroundSize !== "cover")
-        /* unsupported */
-        return rr;
-    const scale = Math.max(rr.width / iw, rr.height / ih);
-    const width = iw * scale;
-    const height = ih * scale;
-    const pos = cs.backgroundPosition.trim().split(/\s+/);
-    const xpos = pos[0] || "50%";
-    const ypos = pos[1] || "50%";
-    const x = rr.left + getObjectPosition(xpos, rr.width - width);
-    const y = rr.top + getObjectPosition(ypos, rr.height - height);
-    return new DOMRect(x, y, width, height);
+const getXRenderBox = (renderer, iw, ih) => {
+	const rr = getBBox(renderer);
+	const cs = getCS(renderer);
+	if (cs.backgroundSize !== "cover")
+		/* unsupported */
+		return rr;
+	const scale = Math.max(rr.width / iw, rr.height / ih);
+	const width = iw * scale;
+	const height = ih * scale;
+	const pos = cs.backgroundPosition.trim().split(/\s+/);
+	const xpos = pos[0] || "50%";
+	const ypos = pos[1] || "50%";
+	const x = rr.left + calcObjPos(xpos, rr.width - width);
+	const y = rr.top + calcObjPos(ypos, rr.height - height);
+	return new DOMRect(x, y, width, height);
 };
-const getContentRect = (img) => {
-    const or = img.getBoundingClientRect();
-    const s = getComputedStyle(img);
-    const bl = parseFloat(s.borderLeftWidth);
-    const br = parseFloat(s.borderRightWidth);
-    const bt = parseFloat(s.borderTopWidth);
-    const bb = parseFloat(s.borderBottomWidth);
-    const pl = parseFloat(s.paddingLeft);
-    const pr = parseFloat(s.paddingRight);
-    const pt = parseFloat(s.paddingTop);
-    const pb = parseFloat(s.paddingBottom);
-    const x = or.left + bl + pl;
-    const y = or.top + bt + pt;
-    const w = or.width - bl - br - pl - pr;
-    const h = or.height - bt - bb - pt - pb;
-    return new DOMRect(x, y, w, h);
+const contentBox = (img) => {
+	const or = getBBox(img);
+	const s = getCS(img);
+	const [bl, br, bt, bb, pl, pr, pt, pb] = [
+		s.borderLeftWidth, s.borderRightWidth,
+		s.borderTopWidth, s.borderBottomWidth,
+		s.paddingLeft, s.paddingRight, s.paddingTop, s.paddingBottom
+	].map(parseFloat);
+	const x = or.left + bl + pl;
+	const y = or.top + bt + pt;
+	const w = or.width - bl - br - pl - pr;
+	const h = or.height - bt - bb - pt - pb;
+	return new DOMRect(x, y, w, h);
 };
-const getImageGeometry = (img) => {
-    const r = getContentRect(img);
-    const iw = img.naturalWidth;
-    const ih = img.naturalHeight;
-    if (!iw || !ih)
-        return { imageRect: r, viewRect: r };
-    const renderer = getImageRenderer(img);
-    let ir;
-    if (renderer) {
-        /* X carousel support */
-        ir = getRenderedRect(renderer, iw, ih)
-    } else {
-        const cs = getComputedStyle(img);
-        const size = getObjectFitSize(r, iw, ih, cs.objectFit);
-        const pos = cs.objectPosition.trim().split(/\s+/);
-        const xpos = pos[0] || "50%";
-        const ypos = pos[1] || "50%";
-        const x = r.left + getObjectPosition(xpos, r.width - size.width);
-        const y = r.top + getObjectPosition(ypos, r.height - size.height);
-        ir = new DOMRect(x, y, size.width, size.height);
-    }
-    const vr = clipByAncestors(img, intersection(r, ir));
-    return { imageRect: ir, viewRect: vr };
+const imgGeom = (img) => {
+	const r = contentBox(img);
+	const iw = img.naturalWidth;
+	const ih = img.naturalHeight;
+	if (!iw || !ih)
+		return { imgBox: r, viewBox: r };
+	const renderer = getXRenderer(img);
+	let ir;
+	if (renderer) {
+		/* X carousel support */
+		ir = getXRenderBox(renderer, iw, ih)
+	} else {
+		const cs = getCS(img);
+		const sz = calcObjFit(r, iw, ih, cs.objectFit);
+		const pos = cs.objectPosition.trim().split(/\s+/);
+		const xpos = pos[0] || "50%";
+		const ypos = pos[1] || "50%";
+		const x = r.left + calcObjPos(xpos, r.width - sz.w);
+		const y = r.top + calcObjPos(ypos, r.height - sz.h);
+		ir = new DOMRect(x, y, sz.w, sz.h);
+	}
+	const vr = clipByParents(img, clip(r, ir));
+	return { imgBox: ir, viewBox: vr };
 };
-const clipByAncestors = (img, rect) => {
-    let node = img.parentElement;
-    while (node) {
-        if (node !== document.scrollingElement) {
-            const cs = getComputedStyle(node);
-            if (cs.overflowX !== "visible" ||
-                cs.overflowY !== "visible") {
-                rect = intersection(rect, node.getBoundingClientRect());
-            }
-        }
-        node = node.parentElement;
-    }
-    return rect;
+const clipByParents = (img, rect) => {
+	let node = img.parentElement;
+	while (node) {
+		if (node !== document.scrollingElement) {
+			const cs = getCS(node);
+			if (cs.overflowX !== "visible" ||
+			    cs.overflowY !== "visible") {
+				rect = clip(rect, getBBox(node));
+			}
+		}
+		node = node.parentElement;
+	}
+	return rect;
 };
-const intersection = (rect1, rect2) => {
-    const left = Math.max(rect1.left, rect2.left);
-    const top = Math.max(rect1.top, rect2.top);
-    const right = Math.min(rect1.right, rect2.right);
-    const bottom = Math.min(rect1.bottom, rect2.bottom);
-    return new DOMRect(left, top, right - left, bottom - top);
+const clip = (rect1, rect2) => {
+	const l = Math.max(rect1.left, rect2.left);
+	const t = Math.max(rect1.top, rect2.top);
+	const r = Math.min(rect1.right, rect2.right);
+	const b = Math.min(rect1.bottom, rect2.bottom);
+	const w = Math.max(r - l, 0);
+        const h = Math.max(b - t, 0);
+	return new DOMRect(l, t, w, h);
 };
-const getScreenRect = () => {
-    return new DOMRect(0, 0, innerWidth, innerHeight);
+const scrBox = () => {
+	return new DOMRect(0, 0, innerWidth, innerHeight);
 };
-const isIrregularImg= img => {
-    const cs = getComputedStyle(img);
-    if (0.0 < cs.opacity && cs.opacity < 1.0)
-        /* Exclude reddit underlay img (opacity 0.3).
-           X carousel img (opacity 0.0) should not be excluded. */
-        return true;
-    return false;
+const isFakeImg= img => {
+	const cs = getCS(img);
+	if (0.0 < cs.opacity && cs.opacity < 1.0)
+		/* Exclude reddit underlay img (opacity 0.3).
+		   X carousel img (opacity 0.0) should not be excluded. */
+		return true;
+	return false;
 };
 const findLargestImg = () => {
-    const sr = getScreenRect();
-    let largest = null;
-    let largestArea = 0;
-    for (const img of document.querySelectorAll("img")) {
-        const vr = intersection(sr, img.getBoundingClientRect());
-        if (vr.width <= ICON_SIZE || vr.height <= ICON_SIZE)
-            continue;
-        if (isIrregularImg(img)) continue;
-        const r = clipByAncestors(img, vr);
-        if (r.width <= ICON_SIZE || r.height <= ICON_SIZE)
-            continue;
-        const area = r.width * r.height;
-        if (area > largestArea) {
-            largest = img;
-            largestArea = area;
-        }
-    }
-    return largest;
+	const sr = scrBox();
+	let largest = null;
+	let largestArea = 0;
+	for (const img of document.querySelectorAll("img")) {
+		const vr = clip(sr, getBBox(img));
+		if (isFakeImg(img)) continue;
+		const r = clipByParents(img, vr);
+		if (r.width <= ICON_SIZE || r.height <= ICON_SIZE)
+			continue;
+		const area = r.width * r.height;
+		if (area > largestArea) {
+			largest = img;
+			largestArea = area;
+		}
+	}
+	return largest;
 };
 const hookTransition = (node, fun) => {
-    for (const evname of ["transitionend", "transitioncancel"]) {
-        node.addEventListener(evname, fun);
-    }
+	for (const evname of ["transitionend", "transitioncancel"]) {
+		node.addEventListener(evname, fun);
+	}
 };
-const jumpPiece = piece => {
-    animatePiece(piece, true);
+const flashNode = (node, parent, { col=FLASH_COL,
+				   t=PIECE_FLASH_T,
+				   cb=null }={}) => {
+	const x = node === parent ? "0px" : node.style.left;
+	const y = node === parent ? "0px" : node.style.top;
+	const el = mkdiv(x, y, node.style.width, node.style.height, {
+		background: col,
+		pointerEvents: "none",
+		zIndex: BIG_Z,
+		clipPath: node.style.clipPath,
+	});
+	parent.appendChild(el);
+	kickFlash(el, t);
+	hookTransition(el, () => {
+		if (cb) cb();
+	});
 };
-const animatePiece = (piece, immediate) => {
-    const t = TRANSITION_DURATION;
-    piece.el.style.transition = immediate ? "none"
-      : `transform ${t}s ease, left ${t}s ease, top ${t}s ease`;
-    piece.el.style.transform = `rotate(${piece.rotation}deg)`;
-    piece.el.style.left = `${piece.left}px`;
-    piece.el.style.top  = `${piece.top}px`;
+const kickFlash = (el, t) => {
+	el.style.transition = `opacity ${t}s ease`;
+	void el.offsetWidth;
+	el.style.opacity = "0";
+	hookTransition(el, () => el.remove());
 };
-const isCorrect = piece => {
-    return piece.slot === piece.correctSlot &&
-        ((piece.rotation % 360) + 360) % 360 === 0;
-};
-const flashNode = (node, parent, duration, callback) => {
-    const left = node === parent ? "0px" : node.style.left;
-    const top  = node === parent ? "0px" : node.style.top;
-    const width = node.style.width;
-    const height = node.style.height;
-    const flash = document.createElement("div");
-
-    Object.assign(flash.style, {
-        position: "absolute",
-        left: left,
-        top: top,
-        width: width,
-        height: height,
-        background: "white",
-        pointerEvents: "none",
-        opacity: 1,
-        zIndex: BIG_Z,
-        transition: `opacity ${duration}s ease`,
-        clipPath: node.style.clipPath,
-    });
-    parent.appendChild(flash);
-    void flash.offsetWidth;
-    flash.style.opacity = "0";
-    hookTransition(flash, () => {
-        flash.remove();
-        if (callback) callback();
-    });
+const mkText = (text, w, h, col) => {
+	let sz = Math.min(w, h);
+	const div = mkdiv(0, 0, null, null, {
+		fontFamily: "sans-serif",
+		fontSize: px(sz),
+		color: col,
+		whiteSpace: "nowrap" });
+	div.textContent = text;
+	document.body.appendChild(div);
+	while ((div.scrollWidth > w || div.scrollHeight > h) && sz > 1) {
+		sz -= 1;
+		div.style.fontSize = px(sz);
+	}
+	div.remove();
+	return div;
 };
 const clearOld = () => {
-    const oldRoots = document.querySelectorAll(".rotpuzzle-root");
-    for (const root of oldRoots)
-        root.remove();
+	const oldRoots = document.querySelectorAll(".rotpuzzle-root");
+	for (const root of oldRoots)
+		root.remove();
+};
+const adjPiece = (p, dir) => {
+	return p.slot.nbors[dir]?.piece ?? null;
+};
+const needWall = (p, dir) => {
+	return adjPiece(p, dir)?.grp !== p.grp;
+};
+const px1 = val => {
+	return typeof val === 'string' ? val : val + "px";
+};
+const px = (...vals) => {
+	return vals.map(px1).join(" ");
+};
+const mkdiv = (x, y, w, h, style={}) => {
+	const el = document.createElement("div");
+	Object.assign(el.style, {
+		position: "absolute",
+		left: px(x), top: px(y),
+		width: px(w), height: px(h) });
+	Object.assign(el.style, style);
+	return el;
+};
+const getBBox = el => { return el.getBoundingClientRect(); };
+const getCS = getComputedStyle;
+const mod = (m, n) => {
+	return ((m % n) + n) % n;
+};
+const toPath = (coords) => {
+	return coords.map(([x, y]) => `${x}px ${y}px`).join(',');
+};
+const dfltCfg = () => {
+	const cfg = { shape: DFLT_SHAPE, division: DFLT_DIVISION, hasWall: DFLT_HAS_WALL };
+	return cfg;
 };
 const init = () => {
-    clearOld();
-    const img = findLargestImg();
-    const puzzle = new HexPuzzle(img, DEFAULT_DIVISION, DEFAULT_HAS_BORDER);
-    const err = puzzle.startUI();
-    if (err) alert(err);
+	clearOld();
+	const img = findLargestImg();
+	const puzzle = new Puzzle(img, dfltCfg());
+	try {
+		puzzle.startUI();
+	} catch (e) {
+		if (typeof e !== "string") throw e;
+		alert(e);
+	}
 };
-
 init();
-})();
+})()
