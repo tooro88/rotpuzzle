@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION="0.3";
+javascript:(()=>{const VERSION="0.4";
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
 const DFLT_HAS_WALL = true;
@@ -49,7 +49,7 @@ constructor(img, cfg) {
 	this.division = cfg.division;
 	this.raisedPieces = [];
 	this.maxDivision = MAX_DIVISION;
-	this.hasWall = cfg.hasWall;
+	this.hasWall = !!cfg.hasWall;
 	this.rotatingPiece = null;
 	this.draggingPiece = null;
 }

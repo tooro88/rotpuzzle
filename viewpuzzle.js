@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION="0.3";
+javascript:(()=>{const VERSION="0.4";
 /* cut-from */
 const DEV_VERSION = true;
 /* cut-to */
@@ -52,7 +52,7 @@ constructor(img, cfg) {
 	this.division = cfg.division;
 	this.raisedPieces = [];
 	this.maxDivision = MAX_DIVISION;
-	this.hasWall = cfg.hasWall;
+	this.hasWall = !!cfg.hasWall;
 	this.rotatingPiece = null;
 	this.draggingPiece = null;
 }
@@ -91,6 +91,11 @@ startUI(showPcs) {
 	}
 	this.shuffle();
 	this.history = [];
+/* cut-from */
+	setUrlParam("shape", this.N);
+	setUrlParam("division", this.division);
+	setUrlParam("hasWall", this.hasWall ? 1 : 0);
+/* cut-to */
 	if (showPcs)
 		this.flashPcs();
 }
@@ -656,6 +661,9 @@ mkUIPanel() {
 }
 toggleWall() {
 	this.hasWall = !this.hasWall;
+/* cut-from */
+	setUrlParam("hasWall", this.hasWall ? 1 : 0);
+/* cut-to */
 	for (const p of this.alives)
 		this.drawWall(p);
 }
@@ -1156,6 +1164,12 @@ const runOnImgs = async (imgs) => {
 		}
 	}
 };
+const setUrlParam = (name, val) => {
+	if (this.isBookmarklet) return;
+	const url = new URL(location.href);
+	url.searchParams.set(name, val);
+	history.replaceState(null, "", url);
+};
 const isHttpUrl = value => {
 	try {
 		const url = new URL(value);
@@ -1194,6 +1208,7 @@ const dfltCfg = () => {
 	const params = new URLSearchParams(location.search);
 	setCfgInt(cfg, params, "shape");
 	setCfgInt(cfg, params, "division");
+	setCfgInt(cfg, params, "hasWall");
 /* cut-to */
 	return cfg;
 };
