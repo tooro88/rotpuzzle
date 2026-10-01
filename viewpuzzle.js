@@ -22,7 +22,8 @@ const WALL_FLASH_T = 1.0;
 const JOIN_FLASH_T = 1.5;
 const PCS_T = 2.5;
 
-const MARGIN_RATIO = 0.05;
+const SQUARE_MARGIN_RATIO = 0.05;
+const HEX_MARGIN_RATIO = 0.02;
 const WALL_RATIO = 0.01;
 const WALL_MIN_PX = 1;
 const PIECE_OVLAP_PX = 1;
@@ -54,7 +55,6 @@ constructor(img, cfg) {
 	this.maxDivision = MAX_DIVISION;
 	this.hasWall = !!cfg.hasWall;
 	this.rotatingPiece = null;
-	this.draggingPiece = null;
 }
 startUI(showPcs) {
 	if (!this.img) throw "no image";
@@ -126,11 +126,17 @@ mkRootPane() {
 	}
 	root.addEventListener("pointerout", (e) => {
 		if (e.relatedTarget === this.root)
+			// マージンまたは正解済みスロットに入った。次
+			// のenterで前回フラッシュしたグループに入って
+			// もフラッシュさせる。
 			this.lastEnterGrp = null;
 	});
 	return root;
 }
 showAnswer() {
+	// 回転連打で正解位置を通り過ぎてしまうのを防ぐため、最後に回
+	// 転したピースが正解位置にあると、それ以上動かせない。それを
+	// キャンセル。
 	this.rotatingPiece = null;
 	for (const p of this.alives) {
 		this.setPieceSlot(p, p.correctSlot);
@@ -292,6 +298,8 @@ onTransitionEnd(p, ev) {
 	this.checkAnswer(p);
 }
 onEnter(p) {
+	// 同じグループ内のピースの境界をまたいだときにフラッシュが発
+	// 生しないようにするためのチェック。
 	if (this.lastEnterGrp === p.grp) return;
 	this.lastEnterGrp = p.grp;
 	this.flashWall(p.grp, HOVER_COL);
@@ -307,7 +315,6 @@ beginDrag(p, e) {
 	e.preventDefault();
 	p.el.setPointerCapture(e.pointerId);
 	this.lastDragGrp = new Set();
-	this.draggingPiece = p;
 	let cachedDestSlot = null;
 	const [startX, startY] = [e.clientX, e.clientY];
 	const [startCx, startCy] = [p.cx, p.cy];
@@ -344,17 +351,26 @@ beginDrag(p, e) {
 
 	const end = e => {
 		p.el.releasePointerCapture(e.pointerId);
-		this.draggingPiece = null;
 		p.el.removeEventListener("pointermove", move);
 		p.el.removeEventListener("pointerup", end);
 		p.el.removeEventListener("pointercancel", end);
 		p.el.style.cursor = "grab";
+		// lastDragGrp: ユーザーが操作したグループ。どかされて
+		// 動いたピースが移動先でまぐれで連結しないための判定
+		// 用。
 		this.lastDragGrp = new Set(grp);
 		this.raisePieces(grp);
 		if (!moved) {
 			this.rotatePiece(p, e.button === 2 ? 1 : -1);
 			return;
 		}
+		const [ex, ey] = this.clt2root(e.clientX, e.clientY);
+		const slot = this.findSlotAt(ex, ey);
+		// ドラッグ中のピースがどいた後マウスを動かすと
+		// mouseenterが発生する。そのタイミングでピースをフラッ
+		// シュするのは、ピース境界をまたいだわけではないので
+		// 不自然。すでにフラッシュ済み扱いにして回避。
+		this.lastEnterGrp = slot?.piece?.grp;
 		for (const pp of grp)
 			this.animatePiece(pp);
 	};
@@ -362,6 +378,10 @@ beginDrag(p, e) {
 	p.el.addEventListener("pointermove", move);
 	p.el.addEventListener("pointerup", end);
 	p.el.addEventListener("pointercancel", end);
+}
+clt2root(x, y) {
+	const r = getBBox(this.root);
+	return [x - r.left, y - r.top];
 }
 lowerPieces() {
 	for (const p of this.raisedPieces) {
@@ -422,7 +442,10 @@ calcDestDFS(p, slot, grp, backwards, victims, rotDir) {
 	if (p.visited) return true;
 	p.visited = true;
 	const pp = slot.piece;
-	if (!pp.alive) return false;
+	if (!pp.alive) {
+		this.flashDead(pp, rotDir);
+		return false;
+	}
 	backwards.set(slot, p.slot);
 	if (grp !== pp.grp) {
 		if (pp.grp.size > 1) {
@@ -486,7 +509,6 @@ checkAnswer(p) {
 		this.checkJoin(p);
 		return;
 	}
-	if (this.draggingPiece === p) return;
 	if (!this.isAlive(p)) return;
 	flashNode(p.el, this.root);
 	this.addHistory(p);
@@ -497,6 +519,7 @@ checkAnswer(p) {
 	}
 }
 checkJoin(p) {
+	// どかされたピースのtransitionendで来た場合は連結判定をしない。
 	// この場合grpの比較に===は使えない。lastDragGrpの設定後に回転
 	// でのsplitが起き得るので。
 	if (!this.lastDragGrp.has(p)) return;
@@ -546,18 +569,22 @@ splitDFS(p, grp, newGrp) {
 		this.splitDFS(pp, grp, newGrp);
 	}
 }
-flashWall(grp, col="green", duration=WALL_FLASH_T) {
+flashDead(p, rotDir) {
+	if (!rotDir) return;
+	this.flashWall1(p, REJECT_COL, WALL_FLASH_T, true);
+}
+flashWall(grp, col, duration=WALL_FLASH_T) {
 	for (const p of grp)
 		this.flashWall1(p, col, duration);
 }
-flashWall1(p, col, duration) {
-	const cs = getCS(p.el);
-	const div = mkdiv(cs.left, cs.top, cs.width, cs.height, {
+flashWall1(p, col, duration, allWall) {
+	const s = p.el.style;
+	const div = mkdiv(s.left, s.top, s.width, s.height, {
 		pointerEvents: "none",
 		zIndex: WALL_FLASH_Z,
 	});
 	for (let dir = 0; dir < this.N; ++dir) {
-		if (needWall(p, dir))
+		if (allWall || needWall(p, dir))
 			this.addWall(div, dir, col);
 	}
 	this.root.appendChild(div);
@@ -582,6 +609,9 @@ addHistory(p) {
 }
 undo() {
 	if (this.history.length === 0) return;
+	// 回転連打で正解位置を通り過ぎてしまうのを防ぐため、最後に回
+	// 転したピースが正解位置にあると、それ以上動かせない。それを
+	// キャンセル。
 	this.rotatingPiece = null;
 	const p = this.history.pop();
 	this.undoBtn.disabled = this.history.length === 0;
@@ -732,8 +762,7 @@ layout(geom, division) {
 	this.vBox = vr;
 	if (vr.width <= 0 || vr.height <= 0) throw "image too small";
 
-	const short = Math.min(vr.width, vr.height);
-	const minMargin = short * MARGIN_RATIO;
+	const minMargin = this.minMargin();
 	this.layoutShape(vr.width  - minMargin * 2, vr.height - minMargin * 2, division);
 	if (this.sz < WALL_MIN_PX * 10) throw "image too small";
 
@@ -833,6 +862,10 @@ layoutShape(w, h, division) {
 		}
 	}
 }
+minMargin() {
+	const short = Math.min(this.vBox.width, this.vBox.height);
+	return short * SQUARE_MARGIN_RATIO;
+}
 getOtherPuzzle() { return [6, "⬡"]; }
 dirToDelta(dir) { return squareDirs[dir]; }
 shapeCoords() { return squareCoords; }
@@ -847,6 +880,10 @@ dirToDelta(dir) { return hexDirs[dir]; }
 shapeCoords() { return hexCoords; }
 wallOffsets() { return hexWallOffsets; }
 edgeVecCoeff() { return 1; }
+minMargin() {
+	const short = Math.min(this.vBox.width, this.vBox.height);
+	return short * HEX_MARGIN_RATIO;
+}
 layoutShape(w, h, division) {
 	this.vRatio = 2 / Math.sqrt(3);
 	const hSz = w / (division + 0.5);
