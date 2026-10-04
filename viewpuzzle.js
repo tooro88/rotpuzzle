@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION="0.4";
+javascript:(()=>{const VERSION="0.5";
 /* cut-from */
 const DEV_VERSION = true;
 /* cut-to */
@@ -26,7 +26,7 @@ const SQUARE_MARGIN_RATIO = 0.05;
 const HEX_MARGIN_RATIO = 0.02;
 const WALL_RATIO = 0.01;
 const WALL_MIN_PX = 1;
-const PIECE_OVLAP_PX = 1;
+const PIECE_OVLAP_PX = 0.5;
 
 const MAX_PIECES = 9999;
 const MAX_DIVISION = 99;
@@ -55,6 +55,7 @@ constructor(img, cfg) {
 	this.maxDivision = MAX_DIVISION;
 	this.hasWall = !!cfg.hasWall;
 	this.rotatingPiece = null;
+	this.shuff = !!cfg.shuff;
 }
 startUI(showPcs) {
 	if (!this.img) throw "no image";
@@ -89,12 +90,15 @@ startUI(showPcs) {
 	for (const p of this.alives) {
 		this.drawPiece(p);
 	}
-	this.shuffle();
+	if (this.shuff)
+		this.shuffle();
 	this.history = [];
 /* cut-from */
 	setUrlParam("shape", this.N);
 	setUrlParam("division", this.division);
 	setUrlParam("hasWall", this.hasWall ? 1 : 0);
+	if (!this.shuff)
+		setUrlParam("shuff", 0);
 /* cut-to */
 	if (showPcs)
 		this.flashPcs();
@@ -525,13 +529,19 @@ checkJoin(p) {
 	if (!this.lastDragGrp.has(p)) return;
 	const nps = this.findCorrectNbors(p);
 	if (nps.length === 0) return;
+	// join後のgrpは新Setにする。undo可否のチェック時、grpの内容が
+	// 不変であることを仮定している。
 	const grp = new Set(p.grp);
+	const ogrps = new Set([p.grp]);
+	for (const np of nps)
+		ogrps.add(np.grp);
 	for (const np of nps) {
 		for (const nnp of np.grp) {
 			grp.add(nnp);
 		}
 	}
 	this.setGrp(grp);
+	this.addHistory([grp, ...ogrps]);
 	this.joinFlash(grp);
 }
 joinFlash(grp) {
@@ -549,6 +559,8 @@ splitGrp(p) {
 	}
 	const newGrps = [];
 	for (let dir = 0; dir < this.N; ++dir) {
+		// split後のgrpは新Setにする。undo可否のチェック時、
+		// grpの内容が不変であることを仮定している。
 		const newGrp = new Set();
 		this.splitDFS(adjPiece(p, dir), grp, newGrp);
 		this.setGrp(newGrp);
@@ -608,13 +620,22 @@ addHistory(p) {
 	this.undoBtn.disabled = false;
 }
 undo() {
-	if (this.history.length === 0) return;
+	while (this.history.length && !this.tryUndo())
+		;
+	this.undoBtn.disabled = this.history.length === 0;
+}
+tryUndo() {
+	const pOrGrps = this.history.pop();
+	if (pOrGrps instanceof Array)
+		return this.undoJoin(pOrGrps);
+	this.undoPiece(pOrGrps);
+	return true;
+}
+undoPiece(p) {
 	// 回転連打で正解位置を通り過ぎてしまうのを防ぐため、最後に回
 	// 転したピースが正解位置にあると、それ以上動かせない。それを
 	// キャンセル。
 	this.rotatingPiece = null;
-	const p = this.history.pop();
-	this.undoBtn.disabled = this.history.length === 0;
 	this.root.appendChild(p.cover);
 	this.root.appendChild(p.el);
 	p.alive = true;
@@ -622,6 +643,16 @@ undo() {
 	p.rotated = false;
 	this.drawWall(p);
 	flashNode(p.el, this.root);
+}
+undoJoin(grps) {
+	const join = grps.shift();
+	if (!isGrpAlive(join)) return false;
+	for (const g of grps) {
+		this.setGrp(g);
+	}
+	for (const g of grps)
+		this.joinFlash(g);
+	return true;
 }
 clearPiece(p) {
 	this.ungroup(p);
@@ -710,7 +741,10 @@ hint() {
 }
 chgShape(shape) {
 	this.closeUI();
-	const cfg = { division: this.division, hasWall: this.hasWall, shape };
+	const cfg = newCfg({
+		division: this.division,
+		hasWall: this.hasWall,
+		shape });
 	const puzzle = new Puzzle(this.img, cfg);
 	try {
 		puzzle.startUI();
@@ -1146,6 +1180,9 @@ const adjPiece = (p, dir) => {
 const needWall = (p, dir) => {
 	return adjPiece(p, dir)?.grp !== p.grp;
 };
+const isGrpAlive = g => {
+	return [...g].every(p => p.grp === g);
+};
 const px1 = val => {
 	return typeof val === 'string' ? val : val + "px";
 };
@@ -1192,7 +1229,7 @@ const waitForImage = (img) => {
 const runOnImgs = async (imgs) => {
 	await Promise.all([...imgs].map(waitForImage));
 	for (const img of imgs) {
-		const puzzle = new Puzzle(img, dfltCfg());
+		const puzzle = new Puzzle(img, newCfg());
 		try {
 			puzzle.startUI();
 		} catch (e) {
@@ -1239,14 +1276,19 @@ const setCfgInt = (cfg, params, name) => {
 	cfg[name] = n;
 };
 /* cut-to */
-const dfltCfg = () => {
-	const cfg = { shape: DFLT_SHAPE, division: DFLT_DIVISION, hasWall: DFLT_HAS_WALL };
+const newCfg = (ovwriteCfg={}) => {
+	const cfg = { shape: DFLT_SHAPE,
+		      division: DFLT_DIVISION,
+		      hasWall: DFLT_HAS_WALL,
+		      shuff: true };
 /* cut-from */
 	const params = new URLSearchParams(location.search);
 	setCfgInt(cfg, params, "shape");
 	setCfgInt(cfg, params, "division");
 	setCfgInt(cfg, params, "hasWall");
+	setCfgInt(cfg, params, "shuff");
 /* cut-to */
+	Object.assign(cfg, ovwriteCfg);
 	return cfg;
 };
 const init = () => {
@@ -1260,7 +1302,7 @@ const init = () => {
 	}
 /* cut-to */
 	const img = findLargestImg();
-	const puzzle = new Puzzle(img, dfltCfg());
+	const puzzle = new Puzzle(img, newCfg());
 	try {
 		puzzle.startUI();
 	} catch (e) {

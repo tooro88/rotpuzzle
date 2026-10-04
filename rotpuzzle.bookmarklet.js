@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION="0.4";
+javascript:(()=>{const VERSION="0.5";
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
 const DFLT_HAS_WALL = true;
@@ -23,7 +23,7 @@ const SQUARE_MARGIN_RATIO = 0.05;
 const HEX_MARGIN_RATIO = 0.02;
 const WALL_RATIO = 0.01;
 const WALL_MIN_PX = 1;
-const PIECE_OVLAP_PX = 1;
+const PIECE_OVLAP_PX = 0.5;
 
 const MAX_PIECES = 9999;
 const MAX_DIVISION = 99;
@@ -52,6 +52,7 @@ constructor(img, cfg) {
 	this.maxDivision = MAX_DIVISION;
 	this.hasWall = !!cfg.hasWall;
 	this.rotatingPiece = null;
+	this.shuff = !!cfg.shuff;
 }
 startUI(showPcs) {
 	if (!this.img) throw "no image";
@@ -86,7 +87,8 @@ startUI(showPcs) {
 	for (const p of this.alives) {
 		this.drawPiece(p);
 	}
-	this.shuffle();
+	if (this.shuff)
+		this.shuffle();
 	this.history = [];
 	if (showPcs)
 		this.flashPcs();
@@ -495,12 +497,16 @@ checkJoin(p) {
 	const nps = this.findCorrectNbors(p);
 	if (nps.length === 0) return;
 	const grp = new Set(p.grp);
+	const ogrps = new Set([p.grp]);
+	for (const np of nps)
+		ogrps.add(np.grp);
 	for (const np of nps) {
 		for (const nnp of np.grp) {
 			grp.add(nnp);
 		}
 	}
 	this.setGrp(grp);
+	this.addHistory([grp, ...ogrps]);
 	this.joinFlash(grp);
 }
 joinFlash(grp) {
@@ -577,10 +583,19 @@ addHistory(p) {
 	this.undoBtn.disabled = false;
 }
 undo() {
-	if (this.history.length === 0) return;
-	this.rotatingPiece = null;
-	const p = this.history.pop();
+	while (this.history.length && !this.tryUndo())
+		;
 	this.undoBtn.disabled = this.history.length === 0;
+}
+tryUndo() {
+	const pOrGrps = this.history.pop();
+	if (pOrGrps instanceof Array)
+		return this.undoJoin(pOrGrps);
+	this.undoPiece(pOrGrps);
+	return true;
+}
+undoPiece(p) {
+	this.rotatingPiece = null;
 	this.root.appendChild(p.cover);
 	this.root.appendChild(p.el);
 	p.alive = true;
@@ -588,6 +603,16 @@ undo() {
 	p.rotated = false;
 	this.drawWall(p);
 	flashNode(p.el, this.root);
+}
+undoJoin(grps) {
+	const join = grps.shift();
+	if (!isGrpAlive(join)) return false;
+	for (const g of grps) {
+		this.setGrp(g);
+	}
+	for (const g of grps)
+		this.joinFlash(g);
+	return true;
 }
 clearPiece(p) {
 	this.ungroup(p);
@@ -673,7 +698,10 @@ hint() {
 }
 chgShape(shape) {
 	this.closeUI();
-	const cfg = { division: this.division, hasWall: this.hasWall, shape };
+	const cfg = newCfg({
+		division: this.division,
+		hasWall: this.hasWall,
+		shape });
 	const puzzle = new Puzzle(this.img, cfg);
 	try {
 		puzzle.startUI();
@@ -1106,6 +1134,9 @@ const adjPiece = (p, dir) => {
 const needWall = (p, dir) => {
 	return adjPiece(p, dir)?.grp !== p.grp;
 };
+const isGrpAlive = g => {
+	return [...g].every(p => p.grp === g);
+};
 const px1 = val => {
 	return typeof val === 'string' ? val : val + "px";
 };
@@ -1129,14 +1160,18 @@ const mod = (m, n) => {
 const toPath = (coords) => {
 	return coords.map(([x, y]) => `${x}px ${y}px`).join(',');
 };
-const dfltCfg = () => {
-	const cfg = { shape: DFLT_SHAPE, division: DFLT_DIVISION, hasWall: DFLT_HAS_WALL };
+const newCfg = (ovwriteCfg={}) => {
+	const cfg = { shape: DFLT_SHAPE,
+		      division: DFLT_DIVISION,
+		      hasWall: DFLT_HAS_WALL,
+		      shuff: true };
+	Object.assign(cfg, ovwriteCfg);
 	return cfg;
 };
 const init = () => {
 	clearOld();
 	const img = findLargestImg();
-	const puzzle = new Puzzle(img, dfltCfg());
+	const puzzle = new Puzzle(img, newCfg());
 	try {
 		puzzle.startUI();
 	} catch (e) {
