@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.6';
+javascript:(()=>{const VERSION='0.7';
 
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
@@ -27,7 +27,7 @@ const SQUARE_MARGIN_RATIO = 0.05;
 const HEX_MARGIN_RATIO = 0.02;
 const OVLAP_PX = 1;
 const WALL_FLASH_MULT = 2;
-const TOUCH_FONT_SIZE = "28px";
+const TOUCH_FONT_SIZE = "24px";
 const FONT_SIZE = "18px";
 
 const MAX_PIECES = 9999;
@@ -46,7 +46,6 @@ const squarePts = [ [-1, -1], [1, -1], [1, 1], [-1, 1] ];
 const hexPts = [[0, -1], [1, -0.5], [1, 0.5], [0, 1], [-1, 0.5], [-1, -0.5]];
 const squareDirs = [ [0, -1], [1, 0], [0, 1], [-1, 0] ];
 const hexDirs = [[ 0.5, -1], [1, 0], [0.5, 1], [-0.5, 1], [-1, 0], [-0.5, -1]];
-const touchEvs = "touchstart|touchmove|touchend|touchcancel".split("|");
 const ptrEvs = ("mousedown|mouseup|click|dblclick|pointermove|pointercancel|"
 		+ "contextmenu|pointerdown|pointerup").split("|");
 
@@ -192,10 +191,13 @@ drawPiece(p) {
 	});
 	Object.assign(p.el.style, {
 		cursor: "grab",
-		touchAction: "none",
 		zIndex: PIECE_Z,
 	});
-	ignoreEvs(p.el, touchEvs);
+	hook(p.el, "touchmove", e => {
+		if (e.touches.length >= 2) return;
+		e.preventDefault();
+		e.stopPropagation();
+	});
 	hook(p.el, "pointerdown", e => this.beginDrag(p, e));
 	hook(p.el, "transitionend", e => this.onTransitionEnd(p, e));
 	hook(p.el, "mouseenter", e => this.onEnter(p));
@@ -691,8 +693,8 @@ mkUIPanel() {
 	const [shape, btnText] = this.lo.getOtherPuzzle();
 
 	this.undoBtn = btn("↶", () => this.undo());
-	const wallBtn = btn("◌", null, "1.5em");
-	this.hintBtn = btn("?", null,  "1.5em");
+	const wallBtn = btn("◌", null, "1em");
+	this.hintBtn = btn("?", null,  "1em");
 	const decBtn = btn("-", () => this.chgDivision(-1));
 	const incBtn = btn("+", () => this.chgDivision(1));
 	btn(btnText, () => this.chgShape(shape));

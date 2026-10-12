@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.6';
+javascript:(()=>{const VERSION='0.7';
 /* cut-from */
 const DEV_VERSION = true;
 /* cut-to */
@@ -18,7 +18,7 @@ const DEV_VERSION = true;
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
 const DFLT_HAS_WALL = true;
-const DFLT_WALL_W = 1;
+const DFLT_WALL_W = 1; // px
 
 const WALL_COL = "#555";
 const COVER_COL = "#bbb";
@@ -42,7 +42,7 @@ const SQUARE_MARGIN_RATIO = 0.05;
 const HEX_MARGIN_RATIO = 0.02;
 const OVLAP_PX = 1;
 const WALL_FLASH_MULT = 2;
-const TOUCH_FONT_SIZE = "28px";
+const TOUCH_FONT_SIZE = "24px";
 const FONT_SIZE = "18px";
 
 const MAX_PIECES = 9999;
@@ -61,7 +61,6 @@ const squarePts = [ [-1, -1], [1, -1], [1, 1], [-1, 1] ];
 const hexPts = [[0, -1], [1, -0.5], [1, 0.5], [0, 1], [-1, 0.5], [-1, -0.5]];
 const squareDirs = [ [0, -1], [1, 0], [0, 1], [-1, 0] ];
 const hexDirs = [[ 0.5, -1], [1, 0], [0.5, 1], [-0.5, 1], [-1, 0], [-0.5, -1]];
-const touchEvs = "touchstart|touchmove|touchend|touchcancel".split("|");
 const ptrEvs = ("mousedown|mouseup|click|dblclick|pointermove|pointercancel|"
 		+ "contextmenu|pointerdown|pointerup").split("|");
 
@@ -234,10 +233,13 @@ drawPiece(p) {
 	});
 	Object.assign(p.el.style, {
 		cursor: "grab",
-		touchAction: "none",
 		zIndex: PIECE_Z,
 	});
-	ignoreEvs(p.el, touchEvs);
+	hook(p.el, "touchmove", e => {
+		if (e.touches.length >= 2) return;
+		e.preventDefault();
+		e.stopPropagation();
+	});
 	hook(p.el, "pointerdown", e => this.beginDrag(p, e));
 	hook(p.el, "transitionend", e => this.onTransitionEnd(p, e));
 	hook(p.el, "mouseenter", e => this.onEnter(p));
@@ -778,13 +780,13 @@ mkUIPanel() {
 	const [shape, btnText] = this.lo.getOtherPuzzle();
 
 	this.undoBtn = btn("↶", () => this.undo());
-	const wallBtn = btn("◌", null, "1.5em");
+	const wallBtn = btn("◌", null, "1em");
 /* cut-from */
 	// \u{1F504}: ANTICLOCKWISE DOWNWARDS AND
 	//            UPWARDS OPEN CIRCLE ARROWS
 	btn("\u{1F504}", e => this.chgOrient(e));
 /* cut-to */
-	this.hintBtn = btn("?", null,  "1.5em");
+	this.hintBtn = btn("?", null,  "1em");
 	const decBtn = btn("-", () => this.chgDivision(-1));
 	const incBtn = btn("+", () => this.chgDivision(1));
 	btn(btnText, () => this.chgShape(shape));
@@ -1443,10 +1445,11 @@ const fitFrame = (frame, orient) => {
 			margin: null,
 			transform: null });
 	if (orient) {
-		const exH = ih - iw;
-		const margin = exH > 0 ? [0, exH / 2] : [-exH / 2, 0];
+		const exH = (ih - iw) / 2;
+		const margin = exH > 0 ? [0, exH] : [-exH, 0];
+		const x = exH < 0 ? px(-exH) : "0px";
 		frame.el.style.margin = px(...margin);
-		frame.el.style.transform = "rotate(90deg)";
+		frame.el.style.transform = `rotate(90deg) translateY(${x})`;
 	}
 };
 const waitForImage = (img) => {
