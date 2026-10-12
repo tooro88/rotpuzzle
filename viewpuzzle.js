@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.7';
+javascript:(()=>{const VERSION='0.8';
 /* cut-from */
 const DEV_VERSION = true;
 /* cut-to */
@@ -784,7 +784,8 @@ mkUIPanel() {
 /* cut-from */
 	// \u{1F504}: ANTICLOCKWISE DOWNWARDS AND
 	//            UPWARDS OPEN CIRCLE ARROWS
-	btn("\u{1F504}", e => this.chgOrient(e));
+	if (this.frame)
+		btn("\u{1F504}", e => this.chgOrient(e));
 /* cut-to */
 	this.hintBtn = btn("?", null,  "1em");
 	const decBtn = btn("-", () => this.chgDivision(-1));

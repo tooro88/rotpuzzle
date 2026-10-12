@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.7';
+javascript:(()=>{const VERSION='0.8';
 
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
