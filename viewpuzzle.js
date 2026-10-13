@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.8';
+javascript:(()=>{const VERSION='0.9';
 /* cut-from */
 const DEV_VERSION = true;
 /* cut-to */
@@ -107,17 +107,18 @@ startUI(showPcs) {
 	this.initWallClips();
 	for (const p of this.alives)
 		this.drawPiece(p);
-	if (this.shuff)
-		this.shuffle();
+	this.shuffle();
 	this.hist = [];
 /* cut-from */
+	if (!this.shuff) {
+		this.showAnswer();
+		setUrlParam("shuff", 0);
+	}
 	setUrlParam("shape", this.N);
 	setUrlParam("division", this.division);
 	setUrlParam("hasWall", this.hasWall ? 1 : 0);
 	setUrlParam("wallW", this.wallW);
 	setUrlParam("orient", this.orient);
-	if (!this.shuff)
-		setUrlParam("shuff", 0);
 /* cut-to */
 	if (showPcs)
 		this.flashPcs();
@@ -182,6 +183,8 @@ showAnswer() {
 		this.jumpPiece(p);
 	}
 	this.initGrps();
+	// \u{1F500}: TWISTED RIGHTWARDS ARROWS
+	this.hintBtn.textContent = "\u{1F500}";
 }
 shuffle() {
 	const slots = this.alives.map(p => p.okSlot);
@@ -199,6 +202,7 @@ shuffle() {
 		this.jumpPiece(p);
 	}
 	this.initGrps();
+	this.hintBtn.textContent = "?";
 }
 initGrps() {
 	for (const p of this.alives)
@@ -487,7 +491,7 @@ moveDFS(p, slot, grp, backwards, victims, rotDir) {
 	if (!pp.alive) return this.failRoot();
 	backwards.set(slot, p.slot);
 	if (grp !== pp.grp) {
-		if (pp.grp.size > 1) return this.failGrp(pp.grp);
+		if (pp.grp.size > 1) return this.failGrp(pp.grp, rotDir);
 		victims.push(pp)
 	}
 	for (let dir = 0; dir < this.N; ++dir) {
@@ -625,15 +629,16 @@ chkFail() {
 	if (this.failFor === "root")
 		this.warnRoot();
 }
-failGrp(grp) {
+failGrp(grp, isRot) {
 	// 連結ピースに重なったときはすぐにハイライトする。
 	this.failFor = "grp"; // 現状は"root"をキャンセルする意味のみ。
 	this.flashWall(grp, WARN_COL);
-	for (const p of grp)
-		flashNode(p.el, this.root,
-			  { col: WARN_COL,
-			    t: WARN_T,
-			    begOpacity: WARN_OPACITY });
+	if (isRot)
+		for (const p of grp)
+			flashNode(p.el, this.root,
+				  { col: WARN_COL,
+				    t: WARN_T,
+				    begOpacity: WARN_OPACITY });
 	return false;
 }
 joinFlash(grp) {
@@ -820,14 +825,10 @@ drawWallAll() {
 		this.drawWall(p);
 }
 hint() {
-	if (this.hintBtn.textContent === "?") {
+	if (this.hintBtn.textContent === "?")
 		this.showAnswer();
-		// \u{1F500}: TWISTED RIGHTWARDS ARROWS
-		this.hintBtn.textContent = "\u{1F500}";
-	} else {
+	else
 		this.shuffle();
-		this.hintBtn.textContent = "?";
-	}
 	this.flashPcs();
 }
 chgShape(shape) {
@@ -1410,18 +1411,23 @@ const msg = (...args) => {
 	else
 		console.log(...args);
 };
+const backupData = (el, name) => {
+	const val = el.dataset[name] ?? el.style[name];
+	el.dataset[name] = val;
+	return val;
+};
 // autofitはimgのmaxWidth、maxHeightを元にサイズを計算する。回転ありの
 // 場合、imgにセットするwidth, heightは回転前のものなので、maxWidth、
 // maxHeightを越えてしまうかもしれない。そのため、maxWidth、maxHeight
-// は回転時に消してしまう。frameInfoは起動時に一度だけ取得して、それを
-// 使い回す。
+// は回転時に消してしまう。bookmarkletをローダーから再実行するときのた
+// めに、値はdatasetにバックアップしておく。
 const frameInfo = (img) => {
 	const el = img.parentElement;
 	if (!el.classList.contains("rotpuzzle-autofit"))
 		return null;
 	return { el, img,
-		 maxW: img.style.maxWidth,
-		 maxH: img.style.maxHeight };
+		 maxW: backupData(img, "maxWidth"),
+		 maxH: backupData(img, "maxHeight") };
 };
 const maxSizeBeforeRot = (frame, orient) => {
 	return orient ? [toPx(frame.maxH), toPx(frame.maxW)]

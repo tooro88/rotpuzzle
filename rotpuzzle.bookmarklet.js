@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.8';
+javascript:(()=>{const VERSION='0.9';
 
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
@@ -89,8 +89,7 @@ startUI(showPcs) {
 	this.initWallClips();
 	for (const p of this.alives)
 		this.drawPiece(p);
-	if (this.shuff)
-		this.shuffle();
+	this.shuffle();
 	this.hist = [];
 	if (showPcs)
 		this.flashPcs();
@@ -141,6 +140,7 @@ showAnswer() {
 		this.jumpPiece(p);
 	}
 	this.initGrps();
+	this.hintBtn.textContent = "\u{1F500}";
 }
 shuffle() {
 	const slots = this.alives.map(p => p.okSlot);
@@ -158,6 +158,7 @@ shuffle() {
 		this.jumpPiece(p);
 	}
 	this.initGrps();
+	this.hintBtn.textContent = "?";
 }
 initGrps() {
 	for (const p of this.alives)
@@ -423,7 +424,7 @@ moveDFS(p, slot, grp, backwards, victims, rotDir) {
 	if (!pp.alive) return this.failRoot();
 	backwards.set(slot, p.slot);
 	if (grp !== pp.grp) {
-		if (pp.grp.size > 1) return this.failGrp(pp.grp);
+		if (pp.grp.size > 1) return this.failGrp(pp.grp, rotDir);
 		victims.push(pp)
 	}
 	for (let dir = 0; dir < this.N; ++dir) {
@@ -554,14 +555,15 @@ chkFail() {
 	if (this.failFor === "root")
 		this.warnRoot();
 }
-failGrp(grp) {
+failGrp(grp, isRot) {
 	this.failFor = "grp";
 	this.flashWall(grp, WARN_COL);
-	for (const p of grp)
-		flashNode(p.el, this.root,
-			  { col: WARN_COL,
-			    t: WARN_T,
-			    begOpacity: WARN_OPACITY });
+	if (isRot)
+		for (const p of grp)
+			flashNode(p.el, this.root,
+				  { col: WARN_COL,
+				    t: WARN_T,
+				    begOpacity: WARN_OPACITY });
 	return false;
 }
 joinFlash(grp) {
@@ -721,13 +723,10 @@ drawWallAll() {
 		this.drawWall(p);
 }
 hint() {
-	if (this.hintBtn.textContent === "?") {
+	if (this.hintBtn.textContent === "?")
 		this.showAnswer();
-		this.hintBtn.textContent = "\u{1F500}";
-	} else {
+	else
 		this.shuffle();
-		this.hintBtn.textContent = "?";
-	}
 	this.flashPcs();
 }
 chgShape(shape) {
