@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.9';
+javascript:(()=>{const VERSION='0.10';
 /* cut-from */
 const DEV_VERSION = true;
 /* cut-to */
@@ -150,6 +150,7 @@ mkRoot() {
 		zIndex: BIG_Z,
 		display: "block",
 		userSelect: "none",
+		"-webkit-user-select": "none",
 	});
 	root.className = "rotpuzzle-root";
 	ignoreEvs(root, ptrEvs);
@@ -240,7 +241,10 @@ drawPiece(p) {
 		zIndex: PIECE_Z,
 	});
 	hook(p.el, "touchmove", e => {
-		if (e.touches.length >= 2) return;
+		if (e.touches.length >= 2) {
+			this.dblTouch = true;
+			return;
+		}
 		e.preventDefault();
 		e.stopPropagation();
 	});
@@ -365,6 +369,8 @@ beginDrag(p, e) {
 	this.failFor = null;
 	// 現在いるslot。同じslotでmoveGrpを2回呼ばないため。
 	let curSlot = null;
+	// 2本指操作を検出したかどうか。
+	this.dblTouch = false;
 	const [begX, begY] = this.tr(e.clientX, e.clientY);
 	const [begCx, begCy] = [p.cx, p.cy];
 	let moved = false;
@@ -410,6 +416,7 @@ beginDrag(p, e) {
 		this.curGrp = new Set(grp);
 		this.raisePieces(grp);
 		if (!moved) {
+			if (this.dblTouch) return;
 			this.rotatePiece(p, e.button === 2 ? 1 : -1);
 			this.chkFail();
 			return;

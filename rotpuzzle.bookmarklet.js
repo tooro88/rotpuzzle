@@ -1,4 +1,4 @@
-javascript:(()=>{const VERSION='0.9';
+javascript:(()=>{const VERSION='0.10';
 
 const DFLT_SHAPE = 6;
 const DFLT_DIVISION = 6;
@@ -121,6 +121,7 @@ mkRoot() {
 		zIndex: BIG_Z,
 		display: "block",
 		userSelect: "none",
+		"-webkit-user-select": "none",
 	});
 	root.className = "rotpuzzle-root";
 	ignoreEvs(root, ptrEvs);
@@ -195,7 +196,10 @@ drawPiece(p) {
 		zIndex: PIECE_Z,
 	});
 	hook(p.el, "touchmove", e => {
-		if (e.touches.length >= 2) return;
+		if (e.touches.length >= 2) {
+			this.dblTouch = true;
+			return;
+		}
 		e.preventDefault();
 		e.stopPropagation();
 	});
@@ -303,6 +307,7 @@ beginDrag(p, e) {
 	this.curGrp = new Set();
 	this.failFor = null;
 	let curSlot = null;
+	this.dblTouch = false;
 	const [begX, begY] = this.tr(e.clientX, e.clientY);
 	const [begCx, begCy] = [p.cx, p.cy];
 	let moved = false;
@@ -347,6 +352,7 @@ beginDrag(p, e) {
 		this.curGrp = new Set(grp);
 		this.raisePieces(grp);
 		if (!moved) {
+			if (this.dblTouch) return;
 			this.rotatePiece(p, e.button === 2 ? 1 : -1);
 			this.chkFail();
 			return;
